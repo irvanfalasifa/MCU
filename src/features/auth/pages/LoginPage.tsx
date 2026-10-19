@@ -1,18 +1,20 @@
 import { useState, type FormEvent } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import { signInWithEmailAndPassword } from 'firebase/auth'
 import { auth } from '../../../services/firebase'
 import { useAuth } from '../useAuth'
 
 export default function LoginPage() {
-  const { user, loading } = useAuth()
-  const navigate = useNavigate()
+  const { user, role, loading } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  if (!loading && user) return <Navigate to="/staff" replace />
+  if (!loading && user) {
+    const home = role === 'admin' || role === 'coordinator' ? '/admin' : '/staff'
+    return <Navigate to={home} replace />
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -20,7 +22,6 @@ export default function LoginPage() {
     setSubmitting(true)
     try {
       await signInWithEmailAndPassword(auth, email, password)
-      navigate('/staff', { replace: true })
     } catch {
       setError('Email atau kata sandi salah.')
     } finally {

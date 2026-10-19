@@ -9,8 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:rules": "firebase emulators:exec --only firestore --project demo-mcu-tracking \"vitest run\"",
-    "emulators": "firebase emulators:start --only firestore",
-    "seed": "node scripts/seed-emulator.mjs"
+    "emulators": "npm --prefix functions run build && firebase emulators:start --only auth,firestore,functions",
+    "seed": "node scripts/seed-emulator.mjs && node scripts/seed-admin.mjs"
   },
   "dependencies": {
     "firebase": "^13.0.0",
@@ -28,6 +28,7 @@
     "eslint": "^10.10.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.6",
+    "firebase-admin": "^14.5.0",
     "globals": "^17.12.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.69.0",

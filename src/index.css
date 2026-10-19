@@ -92,3 +92,17 @@ button {
   margin-top: 16px;
   color: #6b7280;
 }
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.result {
+  padding: 12px 14px;
+  border: 1px solid #16a34a;
+  border-radius: 10px;
+  background: #f0fdf4;
+}
