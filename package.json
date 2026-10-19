@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-mcu-tracking \"vitest run\""
+    "test:rules": "firebase emulators:exec --only firestore --project demo-mcu-tracking \"vitest run\"",
+    "emulators": "firebase emulators:start --only firestore",
+    "seed": "node scripts/seed-emulator.mjs"
   },
   "dependencies": {
     "firebase": "^13.0.0",

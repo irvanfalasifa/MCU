@@ -24,3 +24,71 @@ button {
   font: inherit;
   padding: 8px;
 }
+
+.progress {
+  height: 12px;
+  background: #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #16a34a;
+  transition: width 0.3s;
+}
+
+.progress-text {
+  margin: 8px 0 16px;
+  color: #4b5563;
+}
+
+.unit-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.unit-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.badge {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.badge-idle {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.badge-wait {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge-active {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.badge-done {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.updated {
+  margin-top: 16px;
+  color: #6b7280;
+}
