@@ -1,6 +1,15 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Halaman publik: hanya boleh membaca SATU dokumen aktif
+    // (harus tahu token). Tidak boleh daftar koleksi dan tidak boleh menulis.
+    match /publicTracking/{token} {
+      allow get: if resource != null && resource.data.active == true;
+      allow list, write: if false;
+    }
+
+    // Semua yang lain tetap ditolak
     match /{document=**} {
       allow read, write: if false;
     }
