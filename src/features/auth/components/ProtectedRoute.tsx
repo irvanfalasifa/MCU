@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
-import { signOut } from 'firebase/auth'
-import { auth } from '../../../services/firebase'
+import AppHeader from '../../../components/AppHeader'
 import type { UserRole } from '../../../types/mcu'
 import { useAuth } from '../useAuth'
 
@@ -13,18 +12,24 @@ type Props = {
 export default function ProtectedRoute({ children, allowedRoles }: Props) {
   const { user, role, loading } = useAuth()
 
-  if (loading) return <p>Memuat...</p>
+  if (loading) return <div className="center-screen">Memuat...</div>
   if (!user) return <Navigate to="/login" replace />
 
-  if (allowedRoles && (!role || !allowedRoles.includes(role))) {
-    return (
-      <main>
-        <h1>Akses ditolak</h1>
-        <p>Akun Anda tidak memiliki izin untuk membuka halaman ini.</p>
-        <button onClick={() => signOut(auth)}>Keluar</button>
-      </main>
-    )
-  }
+  const allowed = !allowedRoles || (role !== null && allowedRoles.includes(role))
 
-  return <>{children}</>
+  return (
+    <>
+      <AppHeader />
+      {allowed ? (
+        children
+      ) : (
+        <main>
+          <div className="panel empty">
+            <h1>Akses ditolak</h1>
+            <p>Akun Anda tidak memiliki izin untuk membuka halaman ini.</p>
+          </div>
+        </main>
+      )}
+    </>
+  )
 }

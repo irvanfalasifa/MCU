@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { signOut } from 'firebase/auth'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import { auth, db, functions } from '../../../services/firebase'
+import { db, functions } from '../../../services/firebase'
 import { todayJakarta } from '../../../lib/date'
+import { errorMessage } from '../../../lib/errors'
+import { useToast } from '../../../components/toast/useToast'
 import {
   NEXT_STATUSES,
   UNIT_CODES,
@@ -24,14 +24,20 @@ const ACTION_LABEL: Partial<Record<UnitStatus, string>> = {
   Selesai: 'Selesaikan',
 }
 
+const ACTION_CLASS: Partial<Record<UnitStatus, string>> = {
+  Menunggu: 'btn btn-sm',
+  'Sedang diperiksa': 'btn btn-sm btn-primary',
+  Selesai: 'btn btn-sm btn-success',
+}
+
 export default function StaffPage() {
-  const { user, role, unitCodes } = useAuth()
+  const { role, unitCodes } = useAuth()
+  const toast = useToast()
   const isManager = role === 'admin' || role === 'coordinator'
   const units: UnitCode[] = role === 'staff' ? unitCodes : [...UNIT_CODES]
 
   const [unit, setUnit] = useState<UnitCode | ''>(units[0] ?? '')
   const [rows, setRows] = useState<QueueRow[]>([])
-  const [error, setError] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const [correctingId, setCorrectingId] = useState<string | null>(null)
@@ -57,16 +63,14 @@ export default function StaffPage() {
         }))
         next.sort((a, b) => a.queueNumber.localeCompare(b.queueNumber))
         setRows(next)
-        setError('')
       },
-      () => setError('Tidak dapat memuat antrean.'),
+      () => toast.error('Tidak dapat memuat antrean.'),
     )
 
     return unsubscribe
-  }, [unit])
+  }, [unit, toast])
 
   async function change(row: QueueRow, newStatus: UnitStatus) {
-    setError('')
     setBusyId(row.id)
     try {
       const call = httpsCallable<
@@ -74,8 +78,9 @@ export default function StaffPage() {
         { ok: boolean }
       >(functions, 'updateUnitStatus')
       await call({ queueId: row.id, expectedStatus: row.status, newStatus })
+      toast.success(`Antrean ${row.queueNumber} diubah menjadi "${newStatus}".`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal mengubah status.')
+      toast.error(errorMessage(err, 'Gagal mengubah status.'))
     } finally {
       setBusyId(null)
     }
@@ -85,11 +90,13 @@ export default function StaffPage() {
     setCorrectingId(row.id)
     setCorrectionStatus(UNIT_STATUSES.find((s) => s !== row.status) ?? 'Belum mulai')
     setReason('')
-    setError('')
   }
 
   async function submitCorrection(row: QueueRow) {
-    setError('')
+    if (reason.trim().length < 3) {
+      toast.error('Alasan koreksi minimal 3 karakter.')
+      return
+    }
     setBusyId(row.id)
     try {
       const call = httpsCallable<
@@ -103,8 +110,9 @@ export default function StaffPage() {
         reason,
       })
       setCorrectingId(null)
+      toast.success(`Koreksi ${row.queueNumber} tersimpan: "${correctionStatus}".`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal menyimpan koreksi.')
+      toast.error(errorMessage(err, 'Gagal menyimpan koreksi.'))
     } finally {
       setBusyId(null)
     }
@@ -112,43 +120,47 @@ export default function StaffPage() {
 
   return (
     <main>
-      <h1>Dashboard Petugas</h1>
-      <p>Login sebagai: {user?.email}</p>
-      {isManager && (
-        <p>
-          <Link to="/admin">Ke dashboard admin</Link>
-        </p>
-      )}
+      <h1>Antrean {unit ? UNIT_NAMES[unit] : ''}</h1>
+      <p className="page-sub">
+        {role === 'staff'
+          ? 'Proses antrean peserta untuk unit yang ditugaskan kepada Anda.'
+          : 'Pilih unit untuk memproses atau mengoreksi antrean hari ini.'}
+      </p>
 
       {units.length === 0 ? (
-        <p>Akun ini belum ditugaskan ke unit pemeriksaan mana pun.</p>
+        <div className="panel empty">
+          Akun ini belum ditugaskan ke unit pemeriksaan mana pun.
+        </div>
       ) : (
         <>
-          <label>
-            Unit
-            <select value={unit} onChange={(e) => setUnit(e.target.value as UnitCode)}>
-              {units.map((code) => (
-                <option key={code} value={code}>
-                  {UNIT_NAMES[code]}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {error && <p role="alert">{error}</p>}
+          <div className="toolbar">
+            <label className="field">
+              <span>Unit pemeriksaan</span>
+              <select value={unit} onChange={(e) => setUnit(e.target.value as UnitCode)}>
+                {units.map((code) => (
+                  <option key={code} value={code}>
+                    {UNIT_NAMES[code]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="muted">{rows.length} antrean hari ini</span>
+          </div>
 
           {rows.length === 0 ? (
-            <p>Belum ada antrean hari ini.</p>
+            <div className="panel empty">Belum ada antrean hari ini.</div>
           ) : (
             <ul className="unit-list">
               {rows.map((row) => (
                 <li key={row.id}>
-                  <strong>{row.queueNumber}</strong>
+                  <span className="queue-no">{row.queueNumber}</span>
+
                   <span className="row-actions">
                     <StatusBadge status={row.status} />
                     {NEXT_STATUSES[row.status].map((next) => (
                       <button
                         key={next}
+                        className={ACTION_CLASS[next] ?? 'btn btn-sm'}
                         disabled={busyId === row.id}
                         onClick={() => change(row, next)}
                       >
@@ -156,14 +168,19 @@ export default function StaffPage() {
                       </button>
                     ))}
                     {isManager && (
-                      <button onClick={() => openCorrection(row)}>Koreksi</button>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => openCorrection(row)}
+                      >
+                        Koreksi
+                      </button>
                     )}
                   </span>
 
                   {correctingId === row.id && (
                     <div className="correction">
-                      <label>
-                        Ubah status menjadi
+                      <label className="field">
+                        <span>Ubah status menjadi</span>
                         <select
                           value={correctionStatus}
                           onChange={(e) => setCorrectionStatus(e.target.value as UnitStatus)}
@@ -175,20 +192,27 @@ export default function StaffPage() {
                           ))}
                         </select>
                       </label>
-                      <label>
-                        Alasan koreksi (wajib)
+                      <label className="field">
+                        <span>Alasan koreksi (wajib)</span>
                         <input
                           type="text"
                           value={reason}
                           maxLength={200}
+                          placeholder="Contoh: salah menekan tombol"
                           onChange={(e) => setReason(e.target.value)}
                         />
                       </label>
                       <span className="row-actions">
-                        <button disabled={busyId === row.id} onClick={() => submitCorrection(row)}>
+                        <button className="btn btn-sm" onClick={() => setCorrectingId(null)}>
+                          Batal
+                        </button>
+                        <button
+                          className="btn btn-sm btn-primary"
+                          disabled={busyId === row.id}
+                          onClick={() => submitCorrection(row)}
+                        >
                           Simpan koreksi
                         </button>
-                        <button onClick={() => setCorrectingId(null)}>Batal</button>
                       </span>
                     </div>
                   )}
@@ -198,10 +222,6 @@ export default function StaffPage() {
           )}
         </>
       )}
-
-      <p>
-        <button onClick={() => signOut(auth)}>Keluar</button>
-      </p>
     </main>
   )
 }

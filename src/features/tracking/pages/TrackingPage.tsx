@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useParams } from 'react-router-dom'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../../../services/firebase'
+import { overallPillClass } from '../../../lib/status'
 import {
   UNIT_CODES,
   UNIT_NAMES,
@@ -13,6 +14,17 @@ type ViewState =
   | { kind: 'loading' }
   | { kind: 'invalid' }
   | { kind: 'ready'; data: PublicTracking }
+
+function PublicShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="public-page">
+      <header className="public-header">
+        <span className="brand">🩺 MCU Tracker</span>
+      </header>
+      <main className="tracking">{children}</main>
+    </div>
+  )
+}
 
 export default function TrackingPage() {
   const { token } = useParams()
@@ -38,18 +50,20 @@ export default function TrackingPage() {
 
   if (state.kind === 'loading') {
     return (
-      <main>
-        <p>Memuat...</p>
-      </main>
+      <PublicShell>
+        <div className="panel empty">Memuat progres Anda...</div>
+      </PublicShell>
     )
   }
 
   if (state.kind === 'invalid') {
     return (
-      <main>
-        <h1>Tautan tidak valid</h1>
-        <p>Tautan ini tidak ditemukan atau sudah tidak aktif. Silakan hubungi petugas.</p>
-      </main>
+      <PublicShell>
+        <div className="panel empty">
+          <h1>Tautan tidak valid</h1>
+          <p>Tautan ini tidak ditemukan atau sudah tidak aktif. Silakan hubungi petugas.</p>
+        </div>
+      </PublicShell>
     )
   }
 
@@ -64,29 +78,30 @@ export default function TrackingPage() {
   const percent = required.length ? Math.round((done / required.length) * 100) : 0
 
   return (
-    <main>
-      <h1>Progress MCU Anda</h1>
-      {data.queueNumber && (
-        <p className="queue-number">
-          Nomor antrean: <strong>{data.queueNumber}</strong>
-        </p>
-      )}
-      <p>
-        Status keseluruhan: <strong>{data.overallStatus}</strong>
-      </p>
+    <PublicShell>
+      <section className="hero">
+        <span className="hero-label">Nomor antrean</span>
+        <span className="hero-number">{data.queueNumber ?? '—'}</span>
+        <span className={overallPillClass(data.overallStatus)}>{data.overallStatus}</span>
+      </section>
 
-      <div
-        className="progress"
-        role="progressbar"
-        aria-valuenow={percent}
-        aria-valuemin={0}
-        aria-valuemax={100}
-      >
-        <div className="progress-fill" style={{ width: `${percent}%` }} />
-      </div>
-      <p className="progress-text">
-        {done} dari {required.length} pemeriksaan selesai
-      </p>
+      <section className="panel">
+        <div className="progress-head">
+          <strong>
+            {done} dari {required.length} pemeriksaan selesai
+          </strong>
+          <span>{percent}%</span>
+        </div>
+        <div
+          className="progress"
+          role="progressbar"
+          aria-valuenow={percent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <div className="progress-fill" style={{ width: `${percent}%` }} />
+        </div>
+      </section>
 
       <ul className="unit-list">
         {rows.map(({ code, status }) => (
@@ -99,9 +114,9 @@ export default function TrackingPage() {
 
       {data.updatedAt && (
         <p className="updated">
-          <small>Diperbarui: {data.updatedAt.toDate().toLocaleString('id-ID')}</small>
+          Diperbarui: {data.updatedAt.toDate().toLocaleString('id-ID')}
         </p>
       )}
-    </main>
+    </PublicShell>
   )
 }

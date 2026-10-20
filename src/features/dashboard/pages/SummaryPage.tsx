@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useToast } from '../../../components/toast/useToast'
 import { collection, onSnapshot, query, where, type Timestamp } from 'firebase/firestore'
 import { db } from '../../../services/firebase'
 import { todayJakarta } from '../../../lib/date'
@@ -51,6 +51,7 @@ function downloadCsv(filename: string, rows: string[][]) {
 }
 
 export default function SummaryPage() {
+  const toast = useToast()
   const [participants, setParticipants] = useState<ParticipantRow[]>([])
   const [queues, setQueues] = useState<QueueRow[]>([])
   const [error, setError] = useState('')
@@ -157,17 +158,22 @@ export default function SummaryPage() {
         : '',
     ])
 
-    downloadCsv(`laporan-mcu-${todayJakarta()}.csv`, [header, ...lines])
+      downloadCsv(`laporan-mcu-${todayJakarta()}.csv`, [header, ...lines])
+      toast.success('Laporan berhasil diunduh.')
   }
 
   return (
     <main>
-      <h1>Ringkasan MCU hari ini</h1>
-      <p>
-        <Link to="/admin">Kembali ke dashboard admin</Link>
-      </p>
+        <h1>Ringkasan hari ini</h1>
+         <p className="page-sub">
+           Pantau progres peserta dan antrean setiap unit secara langsung.
+         </p>
 
-      {error && <p role="alert">{error}</p>}
+         {error && (
+           <div className="alert alert-error" role="alert">
+             {error}
+           </div>
+         )}
 
       <div className="cards">
         <div className="card">
@@ -231,10 +237,14 @@ export default function SummaryPage() {
       )}
 
       <h2>Laporan</h2>
-      <p>
-        <button onClick={handleExport} disabled={queues.length === 0}>
-          Unduh laporan hari ini (CSV)
-        </button>
+          <p>
+            <button
+             className="btn btn-primary"
+             onClick={handleExport}
+             disabled={queues.length === 0}
+           >
+             Unduh laporan hari ini (CSV)
+           </button>
       </p>
     </main>
   )
