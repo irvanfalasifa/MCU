@@ -7,8 +7,8 @@ export default function NotFoundPage() {
         <div className="auth-brand">🔍</div>
         <h1>Halaman tidak ditemukan</h1>
         <p className="page-sub">Periksa kembali tautan yang Anda buka.</p>
-        <Link className="btn btn-primary" to="/login">
-          Ke halaman login
+        <Link className="btn btn-primary" to="/home">
+          Ke beranda
         </Link>
       </div>
     </div>

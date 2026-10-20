@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import { signOut } from 'firebase/auth'
 import { auth } from '../services/firebase'
 import { useAuth } from '../features/auth/useAuth'
@@ -20,7 +20,9 @@ export default function AppHeader() {
   return (
     <header className="app-header">
       <div className="app-header-inner">
-        <span className="brand">🩺 MCU Tracker</span>
+        <Link to="/home" className="brand">
+          🩺 MCU Tracker
+        </Link>
 
         <nav className="nav">
           <NavLink to="/staff" className={linkClass}>

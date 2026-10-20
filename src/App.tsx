@@ -1,4 +1,5 @@
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
+import HomePage from './features/home/HomePage'
 import LoginPage from './features/auth/pages/LoginPage'
 import TrackingPage from './features/tracking/pages/TrackingPage'
 import StaffPage from './features/dashboard/pages/StaffPage'
@@ -10,6 +11,8 @@ import SummaryPage from './features/dashboard/pages/SummaryPage'
 export default function App() {
   return (
     <Routes>
+      <Route path="/" element={<Navigate to="/home" replace />} />
+      <Route path="/home" element={<HomePage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/track/:token" element={<TrackingPage />} />
       <Route

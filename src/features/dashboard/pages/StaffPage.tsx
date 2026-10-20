@@ -34,9 +34,11 @@ export default function StaffPage() {
   const { role, unitCodes } = useAuth()
   const toast = useToast()
   const isManager = role === 'admin' || role === 'coordinator'
-  const units: UnitCode[] = role === 'staff' ? unitCodes : [...UNIT_CODES]
+  const units: UnitCode[] = [...UNIT_CODES]
+  const defaultUnit: UnitCode =
+    role === 'staff' && unitCodes[0] ? unitCodes[0] : UNIT_CODES[0]
 
-  const [unit, setUnit] = useState<UnitCode | ''>(units[0] ?? '')
+  const [unit, setUnit] = useState<UnitCode | ''>(defaultUnit)
   const [rows, setRows] = useState<QueueRow[]>([])
   const [busyId, setBusyId] = useState<string | null>(null)
 
@@ -122,9 +124,7 @@ export default function StaffPage() {
     <main>
       <h1>Antrean {unit ? UNIT_NAMES[unit] : ''}</h1>
       <p className="page-sub">
-        {role === 'staff'
-          ? 'Proses antrean peserta untuk unit yang ditugaskan kepada Anda.'
-          : 'Pilih unit untuk memproses atau mengoreksi antrean hari ini.'}
+        Pilih unit pemeriksaan, lalu proses antrean peserta hari ini.
       </p>
 
       {units.length === 0 ? (

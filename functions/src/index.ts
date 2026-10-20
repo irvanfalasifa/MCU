@@ -126,7 +126,6 @@ export const updateUnitStatus = onCall({ region: 'asia-southeast2' }, async (req
   }
   const actorUid = request.auth.uid
   const role = request.auth.token.role
-  const staffUnits: unknown = request.auth.token.unitCodes
   const isManager = role === 'admin' || role === 'coordinator'
   const isStaff = role === 'staff'
   if (!isManager && !isStaff) {
@@ -155,9 +154,6 @@ export const updateUnitStatus = onCall({ region: 'asia-southeast2' }, async (req
     const queue = queueSnap.data()!
     const unitCode = queue.unitCode as string
 
-    if (isStaff && !(Array.isArray(staffUnits) && staffUnits.includes(unitCode))) {
-      throw new HttpsError('permission-denied', 'Anda tidak bertugas di unit ini.')
-    }
     if (queue.status !== from) {
       throw new HttpsError('failed-precondition', 'Status sudah berubah. Muat ulang daftar antrean.')
     }

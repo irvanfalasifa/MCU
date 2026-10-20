@@ -128,41 +128,49 @@ export default function AdminPage() {
         </button>
       </section>
 
-      {selected && (
-        <section className="panel qr-panel">
-          <div className="print-area label">
-            <p>
-              Nomor antrean: <strong>{selected.queueNumber}</strong>
-            </p>
-            <QRCodeSVG value={`${baseUrl}/track/${selected.token}`} size={180} />
-            <p>
-              <small>Pindai untuk melihat progres MCU Anda</small>
-            </p>
+            {selected && (
+        <div className="modal-backdrop" onClick={() => setSelectedId(null)}>
+          <div
+            className="modal modal-qr"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`QR ${selected.queueNumber}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="print-area label">
+              <p>
+                Nomor antrean: <strong>{selected.queueNumber}</strong>
+              </p>
+              <QRCodeSVG value={`${baseUrl}/track/${selected.token}`} size={190} />
+              <p>
+                <small>Pindai untuk melihat progres MCU Anda</small>
+              </p>
+            </div>
+            <div className="row-actions">
+              <button className="btn btn-primary btn-sm" onClick={() => window.print()}>
+                Cetak label
+              </button>
+              <a
+                className="btn btn-sm"
+                href={`/track/${selected.token}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Buka tracking
+              </a>
+              <button
+                className="btn btn-sm btn-danger"
+                disabled={busy}
+                onClick={() => setConfirmRow(selected)}
+              >
+                Ganti token
+              </button>
+              <button className="btn btn-sm btn-ghost" onClick={() => setSelectedId(null)}>
+                Tutup
+              </button>
+            </div>
           </div>
-          <div className="row-actions">
-            <button className="btn btn-primary btn-sm" onClick={() => window.print()}>
-              Cetak label
-            </button>
-            <a
-              className="btn btn-sm"
-              href={`/track/${selected.token}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Buka halaman tracking
-            </a>
-            <button
-              className="btn btn-sm btn-danger"
-              disabled={busy}
-              onClick={() => setConfirmRow(selected)}
-            >
-              Ganti token
-            </button>
-            <button className="btn btn-sm btn-ghost" onClick={() => setSelectedId(null)}>
-              Tutup
-            </button>
-          </div>
-        </section>
+        </div>
       )}
 
       <h2>Peserta hari ini ({rows.length})</h2>

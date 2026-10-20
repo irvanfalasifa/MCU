@@ -89,24 +89,25 @@ describe('data internal', () => {
   })
 })
 
-describe('antrean per unit', () => {
+describe('antrean', () => {
   const as = (uid: string, claims: Record<string, unknown>) =>
     env.authenticatedContext(uid, claims).firestore()
 
-  it('petugas LAB boleh membaca antrean LAB', async () => {
+  it('petugas boleh membaca antrean unit mana pun', async () => {
     const db = as('u1', { role: 'staff', unitCodes: ['LAB'] })
     await assertSucceeds(getDoc(doc(db, 'queues', 'q1')))
+    await assertSucceeds(getDoc(doc(db, 'queues', 'q2')))
   })
 
-  it('petugas LAB tidak boleh membaca antrean RAD', async () => {
-    const db = as('u1', { role: 'staff', unitCodes: ['LAB'] })
-    await assertFails(getDoc(doc(db, 'queues', 'q2')))
-  })
-
-  it('petugas LAB boleh query unit LAB, tidak boleh query unit RAD', async () => {
+  it('petugas boleh query unit mana pun', async () => {
     const db = as('u1', { role: 'staff', unitCodes: ['LAB'] })
     await assertSucceeds(getDocs(query(collection(db, 'queues'), where('unitCode', '==', 'LAB'))))
-    await assertFails(getDocs(query(collection(db, 'queues'), where('unitCode', '==', 'RAD'))))
+    await assertSucceeds(getDocs(query(collection(db, 'queues'), where('unitCode', '==', 'RAD'))))
+  })
+
+  it('pengguna tanpa role tidak boleh membaca antrean', async () => {
+    const db = as('u9', {})
+    await assertFails(getDoc(doc(db, 'queues', 'q1')))
   })
 
   it('admin boleh membaca semua antrean', async () => {

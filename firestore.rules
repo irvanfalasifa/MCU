@@ -7,10 +7,9 @@ service cloud.firestore {
         && request.auth.token.get('role', '') in ['admin', 'coordinator'];
     }
 
-    function isStaffFor(unit) {
+    function isStaff() {
       return request.auth != null
-        && request.auth.token.get('role', '') == 'staff'
-        && unit in request.auth.token.get('unitCodes', []);
+        && request.auth.token.get('role', '') == 'staff';
     }
 
     // Halaman publik: hanya satu dokumen aktif, harus tahu token
@@ -19,19 +18,19 @@ service cloud.firestore {
       allow list, write: if false;
     }
 
-    // Antrean: dibaca manajer atau petugas unit terkait; tidak pernah ditulis dari browser
+    // Antrean: dibaca manajer dan petugas; tidak pernah ditulis dari browser
     match /queues/{queueId} {
-      allow read: if isManager() || isStaffFor(resource.data.unitCode);
+      allow read: if isManager() || isStaff();
       allow write: if false;
     }
 
-    // Peserta: hanya manajer yang boleh membaca; tidak pernah ditulis dari browser
+    // Peserta: hanya manajer
     match /participants/{participantId} {
       allow read: if isManager();
       allow write: if false;
     }
-    
-    match /{document=**} {
+
+      match /{document=**} {
       allow read, write: if false;
     }
   }
