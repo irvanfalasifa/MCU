@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '../../../services/firebase'
 import { UNIT_CODES, UNIT_NAMES, type UnitCode } from '../../../types/mcu'
+import { QRCodeSVG } from 'qrcode.react'
+
+const baseUrl = import.meta.env.VITE_PUBLIC_BASE_URL || window.location.origin
 
 type CreateResult = {
   participantId: string
@@ -34,6 +37,7 @@ export default function AdminPage() {
       const response = await call({ requiredUnits: selected })
       setResult(response.data)
     } catch (err) {
+      console.error('createParticipant gagal:', err)
       setError(err instanceof Error ? err.message : 'Gagal membuat peserta.')
     } finally {
       setLoading(false)
@@ -67,14 +71,24 @@ export default function AdminPage() {
 
       {error && <p role="alert">{error}</p>}
 
-      {result && (
+            {result && (
         <section className="result">
+          <div className="print-area label">
+            <p>
+              Nomor antrean: <strong>{result.queueNumber}</strong>
+            </p>
+            <QRCodeSVG
+              value={`${baseUrl}/track/${result.trackingToken}`}
+              size={180}
+            />
+            <p>
+              <small>Pindai untuk melihat progres MCU Anda</small>
+            </p>
+          </div>
           <p>
-            Nomor antrean: <strong>{result.queueNumber}</strong>
-          </p>
-          <p>
+            <button onClick={() => window.print()}>Cetak label</button>{' '}
             <Link to={`/track/${result.trackingToken}`} target="_blank">
-              Buka halaman tracking peserta
+              Buka halaman tracking
             </Link>
           </p>
         </section>
