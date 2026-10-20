@@ -2,14 +2,29 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Halaman publik: hanya boleh membaca SATU dokumen aktif
-    // (harus tahu token). Tidak boleh daftar koleksi dan tidak boleh menulis.
+    function isManager() {
+      return request.auth != null
+        && request.auth.token.get('role', '') in ['admin', 'coordinator'];
+    }
+
+    function isStaffFor(unit) {
+      return request.auth != null
+        && request.auth.token.get('role', '') == 'staff'
+        && unit in request.auth.token.get('unitCodes', []);
+    }
+
+    // Halaman publik: hanya satu dokumen aktif, harus tahu token
     match /publicTracking/{token} {
       allow get: if resource != null && resource.data.active == true;
       allow list, write: if false;
     }
 
-    // Semua yang lain tetap ditolak
+    // Antrean: dibaca manajer atau petugas unit terkait; tidak pernah ditulis dari browser
+    match /queues/{queueId} {
+      allow read: if isManager() || isStaffFor(resource.data.unitCode);
+      allow write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

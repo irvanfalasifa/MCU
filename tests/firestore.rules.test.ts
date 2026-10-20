@@ -5,7 +5,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest'
 
 let env: RulesTestEnvironment
@@ -37,6 +37,7 @@ beforeEach(async () => {
     await setDoc(doc(db, 'publicTracking', 'token-dicabut'), { ...base, active: false })
     await setDoc(doc(db, 'participants', 'p1'), { queueNumber: 'MCU-001' })
     await setDoc(doc(db, 'queues', 'q1'), { unitCode: 'LAB' })
+    await setDoc(doc(db, 'queues', 'q2'), { unitCode: 'RAD' })
     await setDoc(doc(db, 'users', 'uid-staff'), { role: 'staff' })
   })
 })
@@ -85,5 +86,36 @@ describe('data internal', () => {
     await assertFails(
       setDoc(doc(staff(), 'users', 'uid-staff'), { role: 'admin' }),
     )
+  })
+})
+
+describe('antrean per unit', () => {
+  const as = (uid: string, claims: Record<string, unknown>) =>
+    env.authenticatedContext(uid, claims).firestore()
+
+  it('petugas LAB boleh membaca antrean LAB', async () => {
+    const db = as('u1', { role: 'staff', unitCodes: ['LAB'] })
+    await assertSucceeds(getDoc(doc(db, 'queues', 'q1')))
+  })
+
+  it('petugas LAB tidak boleh membaca antrean RAD', async () => {
+    const db = as('u1', { role: 'staff', unitCodes: ['LAB'] })
+    await assertFails(getDoc(doc(db, 'queues', 'q2')))
+  })
+
+  it('petugas LAB boleh query unit LAB, tidak boleh query unit RAD', async () => {
+    const db = as('u1', { role: 'staff', unitCodes: ['LAB'] })
+    await assertSucceeds(getDocs(query(collection(db, 'queues'), where('unitCode', '==', 'LAB'))))
+    await assertFails(getDocs(query(collection(db, 'queues'), where('unitCode', '==', 'RAD'))))
+  })
+
+  it('admin boleh membaca semua antrean', async () => {
+    const db = as('u2', { role: 'admin' })
+    await assertSucceeds(getDocs(collection(db, 'queues')))
+  })
+
+  it('petugas tidak boleh menulis antrean dari browser', async () => {
+    const db = as('u1', { role: 'staff', unitCodes: ['LAB'] })
+    await assertFails(setDoc(doc(db, 'queues', 'q1'), { status: 'Selesai' }))
   })
 })

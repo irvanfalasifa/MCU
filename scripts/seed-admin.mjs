@@ -6,8 +6,18 @@ initializeApp({ projectId: 'mcu-tracking' })
 const auth = getAuth()
 
 const accounts = [
-  { email: 'admin@contoh.test', password: 'admin123456', displayName: 'Admin Uji', role: 'admin' },
-  { email: 'petugas@contoh.test', password: 'petugas123456', displayName: 'Petugas Uji', role: 'staff' },
+  {
+    email: 'admin@contoh.test',
+    password: 'admin123456',
+    displayName: 'Admin Uji',
+    claims: { role: 'admin' },
+  },
+  {
+    email: 'petugas@contoh.test',
+    password: 'petugas123456',
+    displayName: 'Petugas Lab',
+    claims: { role: 'staff', unitCodes: ['LAB'] },
+  },
 ]
 
 for (const account of accounts) {
@@ -21,6 +31,6 @@ for (const account of accounts) {
       displayName: account.displayName,
     })
   }
-  await auth.setCustomUserClaims(user.uid, { role: account.role })
-  console.log('Akun emulator siap:', account.email, '→', account.role)
+  await auth.setCustomUserClaims(user.uid, account.claims)
+  console.log('Akun emulator siap:', account.email, '→', account.claims.role)
 }

@@ -63,6 +63,7 @@ export const createParticipant = onCall({ region: 'asia-southeast2' }, async (re
       tx.set(db.collection('queues').doc(), {
         participantId: participantRef.id,
         unitCode,
+        mcuDate,
         queueNumber: number,
         status: 'Belum mulai',
         queuedAt: FieldValue.serverTimestamp(),
@@ -92,4 +93,121 @@ export const createParticipant = onCall({ region: 'asia-southeast2' }, async (re
   })
 
   return { participantId: participantRef.id, queueNumber, trackingToken: token }
+})
+
+const UNIT_STATUSES = [
+  'Belum mulai',
+  'Menunggu',
+  'Sedang diperiksa',
+  'Selesai',
+  'Tidak diperlukan',
+] as const
+type UnitStatus = (typeof UNIT_STATUSES)[number]
+
+const NEXT_STATUSES: Record<UnitStatus, UnitStatus[]> = {
+  'Belum mulai': ['Menunggu', 'Sedang diperiksa'],
+  Menunggu: ['Sedang diperiksa'],
+  'Sedang diperiksa': ['Selesai'],
+  Selesai: [],
+  'Tidak diperlukan': [],
+}
+
+function overallFrom(statuses: UnitStatus[]): 'Belum dimulai' | 'Dalam proses' | 'Selesai' {
+  const required = statuses.filter((s) => s !== 'Tidak diperlukan')
+  if (required.length > 0 && required.every((s) => s === 'Selesai')) return 'Selesai'
+  if (required.some((s) => s !== 'Belum mulai')) return 'Dalam proses'
+  return 'Belum dimulai'
+}
+
+export const updateUnitStatus = onCall({ region: 'asia-southeast2' }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Anda harus login.')
+  }
+  const actorUid = request.auth.uid
+  const role = request.auth.token.role
+  const staffUnits: unknown = request.auth.token.unitCodes
+  const isManager = role === 'admin' || role === 'coordinator'
+  const isStaff = role === 'staff'
+  if (!isManager && !isStaff) {
+    throw new HttpsError('permission-denied', 'Anda tidak memiliki izin.')
+  }
+
+  const { queueId, expectedStatus, newStatus } = request.data ?? {}
+  if (
+    typeof queueId !== 'string' ||
+    queueId.length === 0 ||
+    !UNIT_STATUSES.includes(expectedStatus) ||
+    !UNIT_STATUSES.includes(newStatus)
+  ) {
+    throw new HttpsError('invalid-argument', 'Data permintaan tidak valid.')
+  }
+  const from = expectedStatus as UnitStatus
+  const to = newStatus as UnitStatus
+
+  const queueRef = db.collection('queues').doc(queueId)
+
+  await db.runTransaction(async (tx) => {
+    const queueSnap = await tx.get(queueRef)
+    if (!queueSnap.exists) {
+      throw new HttpsError('not-found', 'Antrean tidak ditemukan.')
+    }
+    const queue = queueSnap.data()!
+    const unitCode = queue.unitCode as string
+
+    if (isStaff && !(Array.isArray(staffUnits) && staffUnits.includes(unitCode))) {
+      throw new HttpsError('permission-denied', 'Anda tidak bertugas di unit ini.')
+    }
+    if (queue.status !== from) {
+      throw new HttpsError('failed-precondition', 'Status sudah berubah. Muat ulang daftar antrean.')
+    }
+    if (!NEXT_STATUSES[from].includes(to)) {
+      throw new HttpsError('failed-precondition', 'Perubahan status tidak diizinkan.')
+    }
+
+    const participantRef = db.collection('participants').doc(queue.participantId)
+    const participantSnap = await tx.get(participantRef)
+    const siblingsSnap = await tx.get(
+      db.collection('queues').where('participantId', '==', queue.participantId),
+    )
+    if (!participantSnap.exists) {
+      throw new HttpsError('not-found', 'Peserta tidak ditemukan.')
+    }
+
+    const token = participantSnap.data()!.trackingTokenId as string
+    const statuses = siblingsSnap.docs.map((d) =>
+      d.id === queueId ? to : (d.data().status as UnitStatus),
+    )
+    const overall = overallFrom(statuses)
+
+    const queueUpdate: Record<string, unknown> = {
+      status: to,
+      lastUpdatedBy: actorUid,
+      updatedAt: FieldValue.serverTimestamp(),
+    }
+    if (to === 'Sedang diperiksa') queueUpdate.startedAt = FieldValue.serverTimestamp()
+    if (to === 'Selesai') queueUpdate.completedAt = FieldValue.serverTimestamp()
+
+    tx.update(queueRef, queueUpdate)
+    tx.update(participantRef, {
+      overallStatus: overall,
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    tx.update(db.doc(`publicTracking/${token}`), {
+      [`units.${unitCode}`]: to,
+      overallStatus: overall,
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    tx.set(db.collection('auditLogs').doc(), {
+      action: 'updateUnitStatus',
+      actorUid,
+      queueId,
+      participantId: queue.participantId,
+      unitCode,
+      from,
+      to,
+      at: FieldValue.serverTimestamp(),
+    })
+  })
+
+  return { ok: true }
 })

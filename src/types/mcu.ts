@@ -21,6 +21,15 @@ export const UNIT_STATUSES = [
 ] as const
 export type UnitStatus = (typeof UNIT_STATUSES)[number]
 
+// Perpindahan status yang diperbolehkan (alur normal, hanya maju)
+export const NEXT_STATUSES: Record<UnitStatus, UnitStatus[]> = {
+  'Belum mulai': ['Menunggu', 'Sedang diperiksa'],
+  Menunggu: ['Sedang diperiksa'],
+  'Sedang diperiksa': ['Selesai'],
+  Selesai: [],
+  'Tidak diperlukan': [],
+}
+
 export type OverallStatus = 'Belum dimulai' | 'Dalam proses' | 'Selesai'
 
 export type UserRole = 'admin' | 'coordinator' | 'staff'
