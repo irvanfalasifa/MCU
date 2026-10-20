@@ -10,6 +10,7 @@ import {
   type OverallStatus,
   type UnitCode,
 } from '../../../types/mcu'
+import { Link } from 'react-router-dom'
 
 type ParticipantRow = {
   id: string
@@ -99,6 +100,10 @@ export default function AdminPage() {
   return (
     <main>
       <h1>Dashboard Admin</h1>
+      <p>
+        <Link to="/admin/summary">Ringkasan dan laporan</Link> ·{' '}
+        <Link to="/staff">Antrean unit</Link>
+      </p>
       <h2>Daftarkan peserta</h2>
 
       <fieldset>

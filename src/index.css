@@ -138,3 +138,50 @@ button {
   font-size: 20px;
   margin: 0 0 8px;
 }
+
+.unit-list li {
+  flex-wrap: wrap;
+}
+
+.correction {
+  flex-basis: 100%;
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin: 12px 0 20px;
+}
+
+.card {
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  color: #4b5563;
+}
+
+.card strong {
+  display: block;
+  font-size: 26px;
+  color: #111827;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+}

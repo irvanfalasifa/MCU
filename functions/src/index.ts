@@ -264,3 +264,105 @@ export const regenerateToken = onCall({ region: 'asia-southeast2' }, async (requ
 
   return { trackingToken: newToken }
 })
+
+export const correctUnitStatus = onCall({ region: 'asia-southeast2' }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Anda harus login.')
+  }
+  const role = request.auth.token.role
+  if (role !== 'admin' && role !== 'coordinator') {
+    throw new HttpsError(
+      'permission-denied',
+      'Hanya admin atau koordinator yang dapat mengoreksi status.',
+    )
+  }
+  const actorUid = request.auth.uid
+
+  const { queueId, expectedStatus, newStatus, reason } = request.data ?? {}
+  const cleanReason = typeof reason === 'string' ? reason.trim() : ''
+  if (
+    typeof queueId !== 'string' ||
+    queueId.length === 0 ||
+    !UNIT_STATUSES.includes(expectedStatus) ||
+    !UNIT_STATUSES.includes(newStatus) ||
+    expectedStatus === newStatus ||
+    cleanReason.length < 3 ||
+    cleanReason.length > 200
+  ) {
+    throw new HttpsError('invalid-argument', 'Data koreksi tidak valid. Alasan minimal 3 karakter.')
+  }
+  const from = expectedStatus as UnitStatus
+  const to = newStatus as UnitStatus
+
+  const queueRef = db.collection('queues').doc(queueId)
+
+  await db.runTransaction(async (tx) => {
+    const queueSnap = await tx.get(queueRef)
+    if (!queueSnap.exists) {
+      throw new HttpsError('not-found', 'Antrean tidak ditemukan.')
+    }
+    const queue = queueSnap.data()!
+    const unitCode = queue.unitCode as string
+
+    if (queue.status !== from) {
+      throw new HttpsError('failed-precondition', 'Status sudah berubah. Muat ulang daftar antrean.')
+    }
+
+    const participantRef = db.collection('participants').doc(queue.participantId)
+    const participantSnap = await tx.get(participantRef)
+    const siblingsSnap = await tx.get(
+      db.collection('queues').where('participantId', '==', queue.participantId),
+    )
+    if (!participantSnap.exists) {
+      throw new HttpsError('not-found', 'Peserta tidak ditemukan.')
+    }
+
+    const token = participantSnap.data()!.trackingTokenId as string
+    const statuses = siblingsSnap.docs.map((d) =>
+      d.id === queueId ? to : (d.data().status as UnitStatus),
+    )
+    const overall = overallFrom(statuses)
+
+    const queueUpdate: Record<string, unknown> = {
+      status: to,
+      lastUpdatedBy: actorUid,
+      updatedAt: FieldValue.serverTimestamp(),
+    }
+    if (to === 'Belum mulai' || to === 'Menunggu' || to === 'Tidak diperlukan') {
+      queueUpdate.startedAt = null
+      queueUpdate.completedAt = null
+    }
+    if (to === 'Sedang diperiksa') {
+      queueUpdate.completedAt = null
+      if (!queue.startedAt) queueUpdate.startedAt = FieldValue.serverTimestamp()
+    }
+    if (to === 'Selesai') {
+      queueUpdate.completedAt = FieldValue.serverTimestamp()
+      if (!queue.startedAt) queueUpdate.startedAt = FieldValue.serverTimestamp()
+    }
+
+    tx.update(queueRef, queueUpdate)
+    tx.update(participantRef, {
+      overallStatus: overall,
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    tx.update(db.doc(`publicTracking/${token}`), {
+      [`units.${unitCode}`]: to,
+      overallStatus: overall,
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    tx.set(db.collection('auditLogs').doc(), {
+      action: 'correctUnitStatus',
+      actorUid,
+      queueId,
+      participantId: queue.participantId,
+      unitCode,
+      from,
+      to,
+      reason: cleanReason,
+      at: FieldValue.serverTimestamp(),
+    })
+  })
+
+  return { ok: true }
+})
