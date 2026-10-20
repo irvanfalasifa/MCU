@@ -12,6 +12,7 @@ import {
 } from '../../../types/mcu'
 import { useAuth } from '../../auth/useAuth'
 import StatusBadge from '../../tracking/components/StatusBadge'
+import { todayJakarta } from '../../../lib/date'
 
 type QueueRow = { id: string; queueNumber: string; status: UnitStatus }
 
@@ -19,10 +20,6 @@ const ACTION_LABEL: Partial<Record<UnitStatus, string>> = {
   Menunggu: 'Tandai menunggu',
   'Sedang diperiksa': 'Mulai periksa',
   Selesai: 'Selesaikan',
-}
-
-function todayJakarta() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date())
 }
 
 export default function StaffPage() {

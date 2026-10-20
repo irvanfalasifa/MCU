@@ -64,6 +64,7 @@ export interface QueueItem {
 // publicTracking/{tokenId}: hanya informasi minimum
 export interface PublicTracking {
   active: boolean
+  queueNumber?: string
   overallStatus: OverallStatus
   units: Partial<Record<UnitCode, UnitStatus>>
   updatedAt: Timestamp

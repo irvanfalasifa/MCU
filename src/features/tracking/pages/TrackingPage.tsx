@@ -66,6 +66,11 @@ export default function TrackingPage() {
   return (
     <main>
       <h1>Progress MCU Anda</h1>
+      {data.queueNumber && (
+        <p className="queue-number">
+          Nomor antrean: <strong>{data.queueNumber}</strong>
+        </p>
+      )}
       <p>
         Status keseluruhan: <strong>{data.overallStatus}</strong>
       </p>

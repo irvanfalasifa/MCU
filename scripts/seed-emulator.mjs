@@ -11,6 +11,7 @@ await env.withSecurityRulesDisabled(async (ctx) => {
 
   await setDoc(doc(db, 'publicTracking', 'token-contoh-123'), {
     active: true,
+    queueNumber: 'MCU-001',
     overallStatus: 'Dalam proses',
     units: {
       REG: 'Selesai',
@@ -25,6 +26,7 @@ await env.withSecurityRulesDisabled(async (ctx) => {
 
   await setDoc(doc(db, 'publicTracking', 'token-dicabut'), {
     active: false,
+    queueNumber: 'MCU-001',
     overallStatus: 'Dalam proses',
     units: { REG: 'Selesai' },
     updatedAt: Timestamp.now(),

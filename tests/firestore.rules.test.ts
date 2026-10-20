@@ -119,3 +119,23 @@ describe('antrean per unit', () => {
     await assertFails(setDoc(doc(db, 'queues', 'q1'), { status: 'Selesai' }))
   })
 })
+
+describe('peserta', () => {
+  const as = (uid: string, claims: Record<string, unknown>) =>
+    env.authenticatedContext(uid, claims).firestore()
+
+  it('admin dan koordinator boleh membaca peserta', async () => {
+    await assertSucceeds(getDoc(doc(as('u1', { role: 'admin' }), 'participants', 'p1')))
+    await assertSucceeds(getDocs(collection(as('u2', { role: 'coordinator' }), 'participants')))
+  })
+
+  it('petugas unit tidak boleh membaca peserta', async () => {
+    const db = as('u3', { role: 'staff', unitCodes: ['LAB'] })
+    await assertFails(getDoc(doc(db, 'participants', 'p1')))
+  })
+
+  it('admin tidak boleh menulis peserta dari browser', async () => {
+    const db = as('u1', { role: 'admin' })
+    await assertFails(setDoc(doc(db, 'participants', 'p1'), { isActive: false }))
+  })
+})

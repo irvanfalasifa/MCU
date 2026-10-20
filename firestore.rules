@@ -25,6 +25,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Peserta: hanya manajer yang boleh membaca; tidak pernah ditulis dari browser
+    match /participants/{participantId} {
+      allow read: if isManager();
+      allow write: if false;
+    }
+    
     match /{document=**} {
       allow read, write: if false;
     }

@@ -77,6 +77,7 @@ export const createParticipant = onCall({ region: 'asia-southeast2' }, async (re
 
     tx.set(publicRef, {
       active: true,
+      queueNumber: number,
       overallStatus: 'Belum dimulai',
       units: Object.fromEntries(units.map((code) => [code, 'Belum mulai'])),
       updatedAt: FieldValue.serverTimestamp(),
@@ -210,4 +211,56 @@ export const updateUnitStatus = onCall({ region: 'asia-southeast2' }, async (req
   })
 
   return { ok: true }
+})
+
+export const regenerateToken = onCall({ region: 'asia-southeast2' }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Anda harus login.')
+  }
+  const role = request.auth.token.role
+  if (role !== 'admin' && role !== 'coordinator') {
+    throw new HttpsError('permission-denied', 'Anda tidak memiliki izin.')
+  }
+
+  const participantId = request.data?.participantId
+  if (typeof participantId !== 'string' || participantId.length === 0) {
+    throw new HttpsError('invalid-argument', 'Data permintaan tidak valid.')
+  }
+
+  const actorUid = request.auth.uid
+  const participantRef = db.collection('participants').doc(participantId)
+  const newToken = randomBytes(32).toString('base64url')
+
+  await db.runTransaction(async (tx) => {
+    const participantSnap = await tx.get(participantRef)
+    if (!participantSnap.exists) {
+      throw new HttpsError('not-found', 'Peserta tidak ditemukan.')
+    }
+
+    const oldToken = participantSnap.data()!.trackingTokenId as string
+    const oldRef = db.doc(`publicTracking/${oldToken}`)
+    const oldSnap = await tx.get(oldRef)
+    if (!oldSnap.exists) {
+      throw new HttpsError('not-found', 'Data tracking tidak ditemukan.')
+    }
+
+    tx.set(db.doc(`publicTracking/${newToken}`), {
+      ...oldSnap.data(),
+      active: true,
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    tx.update(oldRef, { active: false })
+    tx.update(participantRef, {
+      trackingTokenId: newToken,
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    tx.set(db.collection('auditLogs').doc(), {
+      action: 'regenerateToken',
+      actorUid,
+      participantId,
+      at: FieldValue.serverTimestamp(),
+    })
+  })
+
+  return { trackingToken: newToken }
 })

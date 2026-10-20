@@ -133,3 +133,8 @@ button {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+.queue-number {
+  font-size: 20px;
+  margin: 0 0 8px;
+}
