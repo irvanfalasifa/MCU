@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useToast } from '../../../components/toast/useToast'
 import { collection, onSnapshot, query, where, type Timestamp } from 'firebase/firestore'
 import { db } from '../../../services/firebase'
-import { todayJakarta } from '../../../lib/date'
+import { useToast } from '../../../components/toast/useToast'
 import {
   UNIT_CODES,
   UNIT_NAMES,
@@ -10,11 +9,13 @@ import {
   type UnitCode,
   type UnitStatus,
 } from '../../../types/mcu'
+import { useEvents } from '../../events/EventContext'
 
 // Batas menunggu (menit). Sesuaikan dengan keputusan operasional.
 const WAIT_THRESHOLD_MINUTES = 30
 
 type ParticipantRow = { id: string; overallStatus: OverallStatus }
+
 type QueueRow = {
   id: string
   participantId: string
@@ -52,16 +53,19 @@ function downloadCsv(filename: string, rows: string[][]) {
 
 export default function SummaryPage() {
   const toast = useToast()
+  const { selected: event } = useEvents()
+  const eventId = event?.id
+
   const [participants, setParticipants] = useState<ParticipantRow[]>([])
   const [queues, setQueues] = useState<QueueRow[]>([])
   const [error, setError] = useState('')
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
-    const today = todayJakarta()
+    if (!eventId) return
 
     const unsubscribeParticipants = onSnapshot(
-      query(collection(db, 'participants'), where('mcuDate', '==', today)),
+      query(collection(db, 'participants'), where('eventId', '==', eventId)),
       (snap) => {
         setParticipants(
           snap.docs.map((d) => ({
@@ -74,7 +78,7 @@ export default function SummaryPage() {
     )
 
     const unsubscribeQueues = onSnapshot(
-      query(collection(db, 'queues'), where('mcuDate', '==', today)),
+      query(collection(db, 'queues'), where('eventId', '==', eventId)),
       (snap) => {
         setQueues(
           snap.docs.map((d) => {
@@ -99,18 +103,22 @@ export default function SummaryPage() {
       unsubscribeParticipants()
       unsubscribeQueues()
     }
-  }, [])
+  }, [eventId])
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 60_000)
     return () => clearInterval(id)
   }, [])
 
+  // Saat belum ada acara, abaikan data lama yang mungkin masih tersimpan di state.
+  const visibleParticipants = eventId ? participants : []
+  const visibleQueues = eventId ? queues : []
+
   const countOverall = (status: OverallStatus) =>
-    participants.filter((p) => p.overallStatus === status).length
+    visibleParticipants.filter((p) => p.overallStatus === status).length
 
   const perUnit = UNIT_CODES.map((code) => {
-    const items = queues.filter((q) => q.unitCode === code)
+    const items = visibleQueues.filter((q) => q.unitCode === code)
     const count = (status: UnitStatus) => items.filter((q) => q.status === status).length
     return {
       code,
@@ -122,25 +130,25 @@ export default function SummaryPage() {
     }
   })
 
-  const longWaiting = queues
+  const longWaiting = visibleQueues
     .filter(
       (q) => q.status === 'Menunggu' && now - q.updatedAt > WAIT_THRESHOLD_MINUTES * 60_000,
     )
     .sort((a, b) => a.updatedAt - b.updatedAt)
 
   function handleExport() {
-    const overallById = new Map(participants.map((p) => [p.id, p.overallStatus]))
+    const overallById = new Map(visibleParticipants.map((p) => [p.id, p.overallStatus]))
     const unitOrder = (code: UnitCode) => UNIT_CODES.indexOf(code)
 
-    const sorted = [...queues].sort(
+    const sorted = [...visibleQueues].sort(
       (a, b) =>
         a.queueNumber.localeCompare(b.queueNumber) || unitOrder(a.unitCode) - unitOrder(b.unitCode),
     )
 
     const header = [
       'Nomor antrean',
-      'Unit',
-      'Status unit',
+      'Pos',
+      'Status pos',
       'Status keseluruhan',
       'Mulai periksa',
       'Selesai',
@@ -158,27 +166,32 @@ export default function SummaryPage() {
         : '',
     ])
 
-      downloadCsv(`laporan-mcu-${todayJakarta()}.csv`, [header, ...lines])
-      toast.success('Laporan berhasil diunduh.')
+    downloadCsv(`laporan-${event?.prefix ?? 'mcu'}-${event?.date ?? ''}.csv`, [
+      header,
+      ...lines,
+    ])
+    toast.success('Laporan berhasil diunduh.')
   }
 
   return (
     <main>
-        <h1>Ringkasan hari ini</h1>
-         <p className="page-sub">
-           Pantau progres peserta dan antrean setiap unit secara langsung.
-         </p>
+      <h1>Ringkasan acara</h1>
+      <p className="page-sub">
+        {event
+          ? `${event.name}. Pantau progres peserta dan antrean setiap pos secara langsung.`
+          : 'Belum ada acara yang dipilih.'}
+      </p>
 
-         {error && (
-           <div className="alert alert-error" role="alert">
-             {error}
-           </div>
-         )}
+      {error && (
+        <div className="alert alert-error" role="alert">
+          {error}
+        </div>
+      )}
 
       <div className="cards">
         <div className="card">
           Total peserta
-          <strong>{participants.length}</strong>
+          <strong>{visibleParticipants.length}</strong>
         </div>
         <div className="card">
           Belum dimulai
@@ -194,12 +207,12 @@ export default function SummaryPage() {
         </div>
       </div>
 
-      <h2>Antrean per unit</h2>
+      <h2>Antrean per pos</h2>
       <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
-              <th>Unit</th>
+              <th>Pos</th>
               <th>Belum mulai</th>
               <th>Menunggu</th>
               <th>Diperiksa</th>
@@ -237,14 +250,14 @@ export default function SummaryPage() {
       )}
 
       <h2>Laporan</h2>
-          <p>
-            <button
-             className="btn btn-primary"
-             onClick={handleExport}
-             disabled={queues.length === 0}
-           >
-             Unduh laporan hari ini (CSV)
-           </button>
+      <p>
+        <button
+          className="btn btn-primary"
+          onClick={handleExport}
+          disabled={visibleQueues.length === 0}
+        >
+          Unduh laporan acara ini (CSV)
+        </button>
       </p>
     </main>
   )

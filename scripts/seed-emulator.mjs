@@ -7,7 +7,19 @@ const env = await initializeTestEnvironment({
 })
 
 await env.withSecurityRulesDisabled(async (ctx) => {
+  // Pindahkan ke sini:
   const db = ctx.firestore()
+  
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date())
+  
+  await setDoc(doc(db, 'events', 'acara-contoh'), {
+    name: 'MCU Contoh',
+    type: 'lainnya',
+    date: today,
+    prefix: 'MCU',
+    status: 'aktif',
+    createdAt: Timestamp.now(),
+  })
 
   await setDoc(doc(db, 'publicTracking', 'token-contoh-123'), {
     active: true,

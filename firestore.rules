@@ -30,6 +30,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Acara: dibaca manajer dan petugas; tidak pernah ditulis dari browser
+    match /events/{eventId} {
+      allow read: if isManager() || isStaff();
+      allow write: if false;
+    }
+      
       match /{document=**} {
       allow read, write: if false;
     }

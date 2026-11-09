@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../../../services/firebase'
-import { todayJakarta } from '../../../lib/date'
 import { errorMessage } from '../../../lib/errors'
 import { useToast } from '../../../components/toast/useToast'
 import {
@@ -14,18 +13,17 @@ import {
   type UnitStatus,
 } from '../../../types/mcu'
 import { useAuth } from '../../auth/useAuth'
+import { useEvents } from '../../events/EventContext'
 import StatusBadge from '../../tracking/components/StatusBadge'
 
 type QueueRow = { id: string; queueNumber: string; status: UnitStatus }
 
 const ACTION_LABEL: Partial<Record<UnitStatus, string>> = {
-  Menunggu: 'Tandai menunggu',
   'Sedang diperiksa': 'Mulai periksa',
   Selesai: 'Selesaikan',
 }
 
 const ACTION_CLASS: Partial<Record<UnitStatus, string>> = {
-  Menunggu: 'btn btn-sm',
   'Sedang diperiksa': 'btn btn-sm btn-primary',
   Selesai: 'btn btn-sm btn-success',
 }
@@ -33,6 +31,10 @@ const ACTION_CLASS: Partial<Record<UnitStatus, string>> = {
 export default function StaffPage() {
   const { role, unitCodes } = useAuth()
   const toast = useToast()
+  const { selected: event } = useEvents()
+  const eventId = event?.id
+  const closed = event?.status === 'selesai'
+
   const isManager = role === 'admin' || role === 'coordinator'
   const units: UnitCode[] = [...UNIT_CODES]
   const defaultUnit: UnitCode =
@@ -47,12 +49,12 @@ export default function StaffPage() {
   const [reason, setReason] = useState('')
 
   useEffect(() => {
-    if (!unit) return
+    if (!unit || !eventId) return
 
     const q = query(
       collection(db, 'queues'),
       where('unitCode', '==', unit),
-      where('mcuDate', '==', todayJakarta()),
+      where('eventId', '==', eventId),
     )
 
     const unsubscribe = onSnapshot(
@@ -70,7 +72,9 @@ export default function StaffPage() {
     )
 
     return unsubscribe
-  }, [unit, toast])
+  }, [unit, eventId, toast])
+
+  const visibleRows = eventId ? rows : []
 
   async function change(row: QueueRow, newStatus: UnitStatus) {
     setBusyId(row.id)
@@ -124,18 +128,20 @@ export default function StaffPage() {
     <main>
       <h1>Antrean {unit ? UNIT_NAMES[unit] : ''}</h1>
       <p className="page-sub">
-        Pilih unit pemeriksaan, lalu proses antrean peserta hari ini.
+        {event
+          ? `${event.name} · pilih pos pemeriksaan, lalu proses antrean peserta.`
+          : 'Pilih pos pemeriksaan, lalu proses antrean peserta.'}
       </p>
 
-      {units.length === 0 ? (
+      {!event ? (
         <div className="panel empty">
-          Akun ini belum ditugaskan ke unit pemeriksaan mana pun.
+          Belum ada acara. Minta admin membuat acara terlebih dahulu.
         </div>
       ) : (
         <>
           <div className="toolbar">
             <label className="field">
-              <span>Unit pemeriksaan</span>
+              <span>Pos pemeriksaan</span>
               <select value={unit} onChange={(e) => setUnit(e.target.value as UnitCode)}>
                 {units.map((code) => (
                   <option key={code} value={code}>
@@ -144,27 +150,34 @@ export default function StaffPage() {
                 ))}
               </select>
             </label>
-            <span className="muted">{rows.length} antrean hari ini</span>
+            <span className="muted">{visibleRows.length} antrean</span>
           </div>
 
-          {rows.length === 0 ? (
-            <div className="panel empty">Belum ada antrean hari ini.</div>
+          {closed && (
+            <div className="alert alert-error" role="alert">
+              Acara ini sudah selesai, jadi status tidak dapat diubah. Admin masih dapat
+              mengoreksi atau mengaktifkan kembali acara.
+            </div>
+          )}
+
+          {visibleRows.length === 0 ? (
+            <div className="panel empty">Belum ada antrean untuk acara ini.</div>
           ) : (
             <ul className="unit-list">
-              {rows.map((row) => (
+              {visibleRows.map((row) => (
                 <li key={row.id}>
                   <span className="queue-no">{row.queueNumber}</span>
 
                   <span className="row-actions">
                     <StatusBadge status={row.status} />
                     {row.status === 'Belum mulai' && (
-                    <span className="muted">Belum terbuka</span>
+                      <span className="muted">Belum terbuka</span>
                     )}
                     {NEXT_STATUSES[row.status].map((next) => (
                       <button
                         key={next}
                         className={ACTION_CLASS[next] ?? 'btn btn-sm'}
-                        disabled={busyId === row.id}
+                        disabled={busyId === row.id || closed}
                         onClick={() => change(row, next)}
                       >
                         {ACTION_LABEL[next]}

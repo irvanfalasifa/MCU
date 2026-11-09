@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { QRCodeSVG } from 'qrcode.react'
 import ConfirmDialog from '../../../components/ConfirmDialog'
 import { useToast } from '../../../components/toast/useToast'
 import { db, functions } from '../../../services/firebase'
-import { todayJakarta } from '../../../lib/date'
 import { errorMessage } from '../../../lib/errors'
 import { overallPillClass } from '../../../lib/status'
 import {
@@ -14,6 +14,7 @@ import {
   type OverallStatus,
   type UnitCode,
 } from '../../../types/mcu'
+import { useEvents } from '../../events/EventContext'
 
 type ParticipantRow = {
   id: string
@@ -28,6 +29,10 @@ const baseUrl = import.meta.env.VITE_PUBLIC_BASE_URL || window.location.origin
 
 export default function AdminPage() {
   const toast = useToast()
+  const { selected: event } = useEvents()
+  const eventId = event?.id
+  const eventClosed = event?.status === 'selesai'
+
   const [selectedUnits, setSelectedUnits] = useState<UnitCode[]>([...UNIT_CODES])
   const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -36,7 +41,9 @@ export default function AdminPage() {
   const [confirmRow, setConfirmRow] = useState<ParticipantRow | null>(null)
 
   useEffect(() => {
-    const q = query(collection(db, 'participants'), where('mcuDate', '==', todayJakarta()))
+    if (!eventId) return
+
+    const q = query(collection(db, 'participants'), where('eventId', '==', eventId))
     const unsubscribe = onSnapshot(
       q,
       (snap) => {
@@ -52,9 +59,10 @@ export default function AdminPage() {
       () => toast.error('Tidak dapat memuat daftar peserta.'),
     )
     return unsubscribe
-  }, [toast])
+  }, [eventId, toast])
 
-  const selected = rows.find((row) => row.id === selectedId) ?? null
+  const visibleRows = eventId ? rows : []
+  const selected = visibleRows.find((row) => row.id === selectedId) ?? null
 
   function toggleUnit(code: UnitCode) {
     if (code === 'REG') return
@@ -64,13 +72,14 @@ export default function AdminPage() {
   }
 
   async function handleCreate() {
+    if (!eventId) return
     setCreating(true)
     try {
-      const call = httpsCallable<{ requiredUnits: UnitCode[] }, CreateResult>(
+      const call = httpsCallable<{ eventId: string; requiredUnits: UnitCode[] }, CreateResult>(
         functions,
         'createParticipant',
       )
-      const response = await call({ requiredUnits: selectedUnits })
+      const response = await call({ eventId, requiredUnits: selectedUnits })
       setSelectedId(response.data.participantId)
       toast.success(`Peserta ${response.data.queueNumber} berhasil didaftarkan.`)
     } catch (err) {
@@ -102,45 +111,64 @@ export default function AdminPage() {
   return (
     <main>
       <h1>Peserta MCU</h1>
-      <p className="page-sub">Daftarkan peserta baru dan kelola QR tracking mereka.</p>
+      <p className="page-sub">
+        {event
+          ? `Acara: ${event.name}. Daftarkan peserta baru dan kelola QR tracking mereka.`
+          : 'Daftarkan peserta baru dan kelola QR tracking mereka.'}
+      </p>
 
-      <section className="panel">
-        <h2 style={{ marginTop: 0 }}>Daftarkan peserta baru</h2>
-        <p className="muted">
-          Pilih pos pemeriksaan yang harus dilalui peserta. Registrasi selalu wajib.
-        </p>
-
-        <div className="chips">
-          {UNIT_CODES.map((code) => {
-            const on = selectedUnits.includes(code)
-            const locked = code === 'REG'
-            return (
-              <label
-                key={code}
-                className={`${on ? 'chip chip-on' : 'chip'}${locked ? ' chip-locked' : ''}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={on}
-                  disabled={locked}
-                  onChange={() => toggleUnit(code)}
-                />
-                {UNIT_NAMES[code]}
-              </label>
-            )
-          })}
+      {!event ? (
+        <div className="panel empty">
+          <p>Belum ada acara. Buat acara terlebih dahulu sebelum mendaftarkan peserta.</p>
+          <Link className="btn btn-primary" to="/admin/events">
+            Buat acara
+          </Link>
         </div>
+      ) : (
+        <section className="panel">
+          <h2 style={{ marginTop: 0 }}>Daftarkan peserta baru</h2>
 
-        <button
-          className="btn btn-primary"
-          onClick={handleCreate}
-          disabled={creating || selectedUnits.length === 0}
-        >
-          {creating ? 'Memproses...' : 'Daftarkan peserta'}
-        </button>
-      </section>
+          {eventClosed ? (
+            <p className="muted">
+              Acara ini sudah selesai, jadi peserta baru tidak dapat ditambahkan. Pilih acara
+              lain di header atau aktifkan kembali acara ini di halaman Acara.
+            </p>
+          ) : (
+            <>
+              <p className="muted">
+                Pilih pos pemeriksaan yang harus dilalui peserta. Registrasi selalu wajib.
+              </p>
 
-            {selected && (
+              <div className="chips">
+                {UNIT_CODES.map((code) => {
+                  const on = selectedUnits.includes(code)
+                  const locked = code === 'REG'
+                  return (
+                    <label
+                      key={code}
+                      className={`${on ? 'chip chip-on' : 'chip'}${locked ? ' chip-locked' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        disabled={locked}
+                        onChange={() => toggleUnit(code)}
+                      />
+                      {UNIT_NAMES[code]}
+                    </label>
+                  )
+                })}
+              </div>
+
+              <button className="btn btn-primary" onClick={handleCreate} disabled={creating}>
+                {creating ? 'Memproses...' : 'Daftarkan peserta'}
+              </button>
+            </>
+          )}
+        </section>
+      )}
+
+      {selected && (
         <div className="modal-backdrop" onClick={() => setSelectedId(null)}>
           <div
             className="modal modal-qr"
@@ -185,23 +213,29 @@ export default function AdminPage() {
         </div>
       )}
 
-      <h2>Peserta hari ini ({rows.length})</h2>
-      {rows.length === 0 ? (
-        <div className="panel empty">Belum ada peserta hari ini.</div>
-      ) : (
-        <ul className="unit-list">
-          {rows.map((row) => (
-            <li key={row.id}>
-              <span>
-                <span className="queue-no">{row.queueNumber}</span>
-                <span className={overallPillClass(row.overallStatus)}>{row.overallStatus}</span>
-              </span>
-              <button className="btn btn-sm" onClick={() => setSelectedId(row.id)}>
-                Lihat QR
-              </button>
-            </li>
-          ))}
-        </ul>
+      {event && (
+        <>
+          <h2>Peserta acara ini ({visibleRows.length})</h2>
+          {visibleRows.length === 0 ? (
+            <div className="panel empty">Belum ada peserta untuk acara ini.</div>
+          ) : (
+            <ul className="unit-list">
+              {visibleRows.map((row) => (
+                <li key={row.id}>
+                  <span>
+                    <span className="queue-no">{row.queueNumber}</span>
+                    <span className={overallPillClass(row.overallStatus)}>
+                      {row.overallStatus}
+                    </span>
+                  </span>
+                  <button className="btn btn-sm" onClick={() => setSelectedId(row.id)}>
+                    Lihat QR
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
 
       <ConfirmDialog

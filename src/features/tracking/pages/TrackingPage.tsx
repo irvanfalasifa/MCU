@@ -80,6 +80,7 @@ export default function TrackingPage() {
   return (
     <PublicShell>
       <section className="hero">
+          {data.eventName && <span className="hero-event">{data.eventName}</span>}
         <span className="hero-label">Nomor antrean</span>
         <span className="hero-number">{data.queueNumber ?? '—'}</span>
         <span className={overallPillClass(data.overallStatus)}>{data.overallStatus}</span>

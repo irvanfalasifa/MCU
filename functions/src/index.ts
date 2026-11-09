@@ -35,9 +35,7 @@ const NEXT_STATUSES: Record<UnitStatus, UnitStatus[]> = {
   'Tidak diperlukan': [],
 }
 
-function jakartaDate(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date())
-}
+
 
 function overallFrom(statuses: UnitStatus[]): OverallStatus {
   const required = statuses.filter((s) => s !== 'Tidak diperlukan')
@@ -145,7 +143,12 @@ export const createParticipant = onCall({ region: REGION }, async (request) => {
     throw new HttpsError('permission-denied', 'Anda tidak memiliki izin.')
   }
 
-  const raw: unknown = request.data?.requiredUnits
+  const { eventId, requiredUnits } = request.data ?? {}
+  if (typeof eventId !== 'string' || eventId.length === 0) {
+    throw new HttpsError('invalid-argument', 'Acara belum dipilih.')
+  }
+
+  const raw: unknown = requiredUnits
   if (
     !Array.isArray(raw) ||
     raw.length === 0 ||
@@ -157,23 +160,34 @@ export const createParticipant = onCall({ region: REGION }, async (request) => {
   const units = UNIT_CODES.filter((code) => code === 'REG' || raw.includes(code))
 
   const actorUid = request.auth.uid
-  const mcuDate = jakartaDate()
   const token = randomBytes(32).toString('base64url')
 
+  const eventRef = db.collection('events').doc(eventId)
+  const counterRef = db.doc(`counters/${eventId}`)
   const participantRef = db.collection('participants').doc()
-  const counterRef = db.doc(`counters/${mcuDate}`)
   const publicRef = db.doc(`publicTracking/${token}`)
 
   const queueNumber = await db.runTransaction(async (tx) => {
+    const eventSnap = await tx.get(eventRef)
+    if (!eventSnap.exists) {
+      throw new HttpsError('not-found', 'Acara tidak ditemukan.')
+    }
+    const event = eventSnap.data()!
+    if (event.status !== 'aktif') {
+      throw new HttpsError('failed-precondition', 'Acara ini sudah selesai.')
+    }
+
     const counterSnap = await tx.get(counterRef)
     const last = counterSnap.exists ? (counterSnap.data()?.last as number) : 0
     const next = last + 1
-    const number = `MCU-${String(next).padStart(3, '0')}`
+    const number = `${event.prefix as string}-${String(next).padStart(3, '0')}`
+    const mcuDate = event.date as string
 
     tx.set(counterRef, { last: next })
 
     tx.set(participantRef, {
       participantId: participantRef.id,
+      eventId,
       queueNumber: number,
       mcuDate,
       requiredUnits: units,
@@ -188,6 +202,7 @@ export const createParticipant = onCall({ region: REGION }, async (request) => {
       const isReg = unitCode === 'REG'
       tx.set(db.collection('queues').doc(), {
         participantId: participantRef.id,
+        eventId,
         unitCode,
         mcuDate,
         queueNumber: number,
@@ -203,6 +218,7 @@ export const createParticipant = onCall({ region: REGION }, async (request) => {
 
     tx.set(publicRef, {
       active: true,
+      eventName: event.name as string,
       queueNumber: number,
       overallStatus: 'Belum dimulai',
       units: Object.fromEntries(
@@ -214,6 +230,7 @@ export const createParticipant = onCall({ region: REGION }, async (request) => {
     tx.set(db.collection('auditLogs').doc(), {
       action: 'createParticipant',
       actorUid,
+      eventId,
       participantId: participantRef.id,
       at: FieldValue.serverTimestamp(),
     })
@@ -263,6 +280,13 @@ export const updateUnitStatus = onCall({ region: REGION }, async (request) => {
     const siblingsSnap = await tx.get(
       db.collection('queues').where('participantId', '==', queue.participantId),
     )
+        const eventId = queue.eventId as string | undefined
+    if (eventId) {
+      const eventSnap = await tx.get(db.collection('events').doc(eventId))
+      if (eventSnap.exists && eventSnap.data()?.status === 'selesai') {
+        throw new HttpsError('failed-precondition', 'Acara ini sudah selesai.')
+      }
+    }
     if (!participantSnap.exists) {
       throw new HttpsError('not-found', 'Peserta tidak ditemukan.')
     }
@@ -487,4 +511,101 @@ export const regenerateToken = onCall({ region: REGION }, async (request) => {
   })
 
   return { trackingToken: newToken }
+})
+
+// ---------- createEvent dan setEventStatus ----------
+
+const EVENT_TYPES = ['lansia', 'perusahaan', 'sekolah', 'lainnya'] as const
+
+function isValidDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const parsed = new Date(`${value}T00:00:00Z`)
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
+export const createEvent = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Anda harus login.')
+  }
+  const role = request.auth.token.role
+  if (role !== 'admin' && role !== 'coordinator') {
+    throw new HttpsError('permission-denied', 'Anda tidak memiliki izin.')
+  }
+  const actorUid = request.auth.uid
+
+  const { name, type, date, prefix } = request.data ?? {}
+  const cleanName = typeof name === 'string' ? name.trim() : ''
+  const cleanPrefix = typeof prefix === 'string' ? prefix.trim().toUpperCase() : ''
+
+  if (
+    cleanName.length < 3 ||
+    cleanName.length > 80 ||
+    !EVENT_TYPES.includes(type) ||
+    !isValidDate(date) ||
+    !/^[A-Z]{2,5}$/.test(cleanPrefix)
+  ) {
+    throw new HttpsError(
+      'invalid-argument',
+      'Data acara tidak valid. Periksa nama, jenis, tanggal, dan awalan (2 sampai 5 huruf).',
+    )
+  }
+
+  const eventRef = db.collection('events').doc()
+  const batch = db.batch()
+  batch.set(eventRef, {
+    name: cleanName,
+    type,
+    date,
+    prefix: cleanPrefix,
+    status: 'aktif',
+    createdBy: actorUid,
+    createdAt: FieldValue.serverTimestamp(),
+  })
+  batch.set(db.collection('auditLogs').doc(), {
+    action: 'createEvent',
+    actorUid,
+    eventId: eventRef.id,
+    at: FieldValue.serverTimestamp(),
+  })
+  await batch.commit()
+
+  return { eventId: eventRef.id }
+})
+
+export const setEventStatus = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Anda harus login.')
+  }
+  const role = request.auth.token.role
+  if (role !== 'admin' && role !== 'coordinator') {
+    throw new HttpsError('permission-denied', 'Anda tidak memiliki izin.')
+  }
+  const actorUid = request.auth.uid
+
+  const { eventId, status } = request.data ?? {}
+  if (
+    typeof eventId !== 'string' ||
+    eventId.length === 0 ||
+    (status !== 'aktif' && status !== 'selesai')
+  ) {
+    throw new HttpsError('invalid-argument', 'Data permintaan tidak valid.')
+  }
+
+  const eventRef = db.collection('events').doc(eventId)
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(eventRef)
+    if (!snap.exists) {
+      throw new HttpsError('not-found', 'Acara tidak ditemukan.')
+    }
+    tx.update(eventRef, { status })
+    tx.set(db.collection('auditLogs').doc(), {
+      action: 'setEventStatus',
+      actorUid,
+      eventId,
+      status,
+      at: FieldValue.serverTimestamp(),
+    })
+  })
+
+  return { ok: true }
 })

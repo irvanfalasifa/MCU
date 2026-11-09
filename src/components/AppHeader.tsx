@@ -2,6 +2,7 @@ import { Link, NavLink } from 'react-router-dom'
 import { signOut } from 'firebase/auth'
 import { auth } from '../services/firebase'
 import { useAuth } from '../features/auth/useAuth'
+import EventPicker from '../features/events/EventPicker'
 import type { UserRole } from '../types/mcu'
 
 const ROLE_LABEL: Record<UserRole, string> = {
@@ -34,11 +35,18 @@ export default function AppHeader() {
             </NavLink>
           )}
           {isManager && (
+            <NavLink to="/admin/events" className={linkClass}>
+              Acara
+            </NavLink>
+          )}
+          {isManager && (
             <NavLink to="/admin/summary" className={linkClass}>
               Ringkasan
             </NavLink>
           )}
         </nav>
+
+        <EventPicker />
 
         <div className="user-box">
           <span className="user-info">

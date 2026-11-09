@@ -38,6 +38,7 @@ beforeEach(async () => {
     await setDoc(doc(db, 'participants', 'p1'), { queueNumber: 'MCU-001' })
     await setDoc(doc(db, 'queues', 'q1'), { unitCode: 'LAB' })
     await setDoc(doc(db, 'queues', 'q2'), { unitCode: 'RAD' })
+    await setDoc(doc(db, 'events', 'e1'), { name: 'Acara Uji', status: 'aktif' })
     await setDoc(doc(db, 'users', 'uid-staff'), { role: 'staff' })
   })
 })
@@ -138,5 +139,24 @@ describe('peserta', () => {
   it('admin tidak boleh menulis peserta dari browser', async () => {
     const db = as('u1', { role: 'admin' })
     await assertFails(setDoc(doc(db, 'participants', 'p1'), { isActive: false }))
+  })
+})
+
+describe('acara', () => {
+  const as = (uid: string, claims: Record<string, unknown>) =>
+    env.authenticatedContext(uid, claims).firestore()
+
+  it('admin dan petugas boleh membaca acara', async () => {
+    await assertSucceeds(getDoc(doc(as('u1', { role: 'admin' }), 'events', 'e1')))
+    await assertSucceeds(getDocs(collection(as('u2', { role: 'staff' }), 'events')))
+  })
+
+  it('pengunjung dan pengguna tanpa role tidak boleh membaca acara', async () => {
+    await assertFails(getDoc(doc(unauth(), 'events', 'e1')))
+    await assertFails(getDoc(doc(as('u9', {}), 'events', 'e1')))
+  })
+
+  it('admin tidak boleh menulis acara dari browser', async () => {
+    await assertFails(setDoc(doc(as('u1', { role: 'admin' }), 'events', 'e1'), { status: 'selesai' }))
   })
 })

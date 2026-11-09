@@ -68,6 +68,7 @@ export interface QueueItem {
 export interface PublicTracking {
   active: boolean
   queueNumber?: string
+  eventName?: string
   overallStatus: OverallStatus
   units: Partial<Record<UnitCode, UnitStatus>>
   updatedAt: Timestamp
@@ -79,4 +80,32 @@ export interface AppUser {
   role: UserRole
   unitCodes: UnitCode[]
   active: boolean
+}
+
+export const EVENT_TYPES = ['lansia', 'perusahaan', 'sekolah', 'lainnya'] as const
+export type EventType = (typeof EVENT_TYPES)[number]
+
+export const EVENT_TYPE_LABEL: Record<EventType, string> = {
+  lansia: 'Lansia',
+  perusahaan: 'Perusahaan',
+  sekolah: 'Sekolah',
+  lainnya: 'Lainnya',
+}
+
+export const EVENT_PREFIX_DEFAULT: Record<EventType, string> = {
+  lansia: 'LNS',
+  perusahaan: 'PRS',
+  sekolah: 'SKL',
+  lainnya: 'MCU',
+}
+
+export type EventStatus = 'aktif' | 'selesai'
+
+export interface McuEvent {
+  id: string
+  name: string
+  type: EventType
+  date: string
+  prefix: string
+  status: EventStatus
 }
