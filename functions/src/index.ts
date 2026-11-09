@@ -1,18 +1,142 @@
 import { randomBytes } from 'node:crypto'
 import { initializeApp } from 'firebase-admin/app'
-import { FieldValue, getFirestore } from 'firebase-admin/firestore'
+import {
+  FieldValue,
+  getFirestore,
+  type QuerySnapshot,
+  type Transaction,
+} from 'firebase-admin/firestore'
 import { HttpsError, onCall } from 'firebase-functions/v2/https'
 
 initializeApp()
 const db = getFirestore()
 
-const UNIT_CODES = ['REG', 'FIS', 'LAB', 'RAD', 'USG', 'URI'] as const
+const REGION = 'asia-southeast2'
+
+const UNIT_CODES = ['REG', 'FIS', 'LAB', 'VIS', 'EKG', 'RAD', 'USG', 'URI'] as const
+
+const UNIT_STATUSES = [
+  'Belum mulai',
+  'Menunggu',
+  'Sedang diperiksa',
+  'Selesai',
+  'Tidak diperlukan',
+] as const
+type UnitStatus = (typeof UNIT_STATUSES)[number]
+
+type OverallStatus = 'Belum dimulai' | 'Dalam proses' | 'Selesai'
+
+// Alur normal (hanya maju). 'Belum mulai' = pos belum terbuka; dibuka otomatis.
+const NEXT_STATUSES: Record<UnitStatus, UnitStatus[]> = {
+  'Belum mulai': [],
+  Menunggu: ['Sedang diperiksa'],
+  'Sedang diperiksa': ['Selesai'],
+  Selesai: [],
+  'Tidak diperlukan': [],
+}
 
 function jakartaDate(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date())
 }
 
-export const createParticipant = onCall({ region: 'asia-southeast2' }, async (request) => {
+function overallFrom(statuses: UnitStatus[]): OverallStatus {
+  const required = statuses.filter((s) => s !== 'Tidak diperlukan')
+  if (required.length > 0 && required.every((s) => s === 'Selesai')) return 'Selesai'
+  if (required.some((s) => s === 'Sedang diperiksa' || s === 'Selesai')) return 'Dalam proses'
+  return 'Belum dimulai'
+}
+
+// ---------- Aturan alur ----------
+
+// USG dianggap menghalangi Urine jika ada di paket dan belum selesai.
+function isUsgPending(statuses: Map<string, UnitStatus>): boolean {
+  const usg = statuses.get('USG')
+  return usg !== undefined && usg !== 'Selesai' && usg !== 'Tidak diperlukan'
+}
+
+// Pos yang harus dibuka (Belum mulai -> Menunggu) berdasarkan status saat ini.
+function unitsToUnlock(statuses: Map<string, UnitStatus>): string[] {
+  if (statuses.get('REG') !== 'Selesai') return []
+  const result: string[] = []
+  statuses.forEach((status, code) => {
+    if (code === 'REG' || status !== 'Belum mulai') return
+    if (code === 'URI' && isUsgPending(statuses)) return
+    result.push(code)
+  })
+  return result
+}
+
+function currentStatusMap(siblings: QuerySnapshot): Map<string, UnitStatus> {
+  const map = new Map<string, UnitStatus>()
+  siblings.docs.forEach((d) => {
+    map.set(d.data().unitCode as string, d.data().status as UnitStatus)
+  })
+  return map
+}
+
+// Menerapkan satu perubahan status ke peta status peserta, lalu membuka pos
+// yang memenuhi syarat. Mengembalikan status keseluruhan dan perubahan unit.
+function applyChange(params: {
+  tx: Transaction
+  siblings: QuerySnapshot
+  queueId: string
+  to: UnitStatus
+  actorUid: string
+}) {
+  const { tx, siblings, queueId, to, actorUid } = params
+
+  const statusMap = new Map<string, UnitStatus>()
+  const unitUpdates: Record<string, UnitStatus> = {}
+
+  siblings.docs.forEach((d) => {
+    const code = d.data().unitCode as string
+    if (d.id === queueId) {
+      statusMap.set(code, to)
+      unitUpdates[code] = to
+    } else {
+      statusMap.set(code, d.data().status as UnitStatus)
+    }
+  })
+
+  const unlocked = unitsToUnlock(statusMap)
+  siblings.docs.forEach((d) => {
+    const code = d.data().unitCode as string
+    if (unlocked.includes(code)) {
+      tx.update(d.ref, {
+        status: 'Menunggu',
+        queuedAt: FieldValue.serverTimestamp(),
+        lastUpdatedBy: actorUid,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      statusMap.set(code, 'Menunggu')
+      unitUpdates[code] = 'Menunggu'
+    }
+  })
+
+  return {
+    overall: overallFrom(Array.from(statusMap.values())),
+    unitUpdates,
+    unlocked,
+  }
+}
+
+function publicUpdateFor(
+  overall: OverallStatus,
+  unitUpdates: Record<string, UnitStatus>,
+): Record<string, unknown> {
+  const update: Record<string, unknown> = {
+    overallStatus: overall,
+    updatedAt: FieldValue.serverTimestamp(),
+  }
+  Object.keys(unitUpdates).forEach((code) => {
+    update[`units.${code}`] = unitUpdates[code]
+  })
+  return update
+}
+
+// ---------- createParticipant ----------
+
+export const createParticipant = onCall({ region: REGION }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Anda harus login.')
   }
@@ -29,7 +153,8 @@ export const createParticipant = onCall({ region: 'asia-southeast2' }, async (re
   ) {
     throw new HttpsError('invalid-argument', 'Daftar unit pemeriksaan tidak valid.')
   }
-  const units = UNIT_CODES.filter((code) => raw.includes(code))
+  // Registrasi selalu wajib.
+  const units = UNIT_CODES.filter((code) => code === 'REG' || raw.includes(code))
 
   const actorUid = request.auth.uid
   const mcuDate = jakartaDate()
@@ -60,13 +185,14 @@ export const createParticipant = onCall({ region: 'asia-southeast2' }, async (re
     })
 
     for (const unitCode of units) {
+      const isReg = unitCode === 'REG'
       tx.set(db.collection('queues').doc(), {
         participantId: participantRef.id,
         unitCode,
         mcuDate,
         queueNumber: number,
-        status: 'Belum mulai',
-        queuedAt: FieldValue.serverTimestamp(),
+        status: isReg ? 'Menunggu' : 'Belum mulai',
+        queuedAt: isReg ? FieldValue.serverTimestamp() : null,
         startedAt: null,
         completedAt: null,
         lastUpdatedBy: actorUid,
@@ -79,7 +205,9 @@ export const createParticipant = onCall({ region: 'asia-southeast2' }, async (re
       active: true,
       queueNumber: number,
       overallStatus: 'Belum dimulai',
-      units: Object.fromEntries(units.map((code) => [code, 'Belum mulai'])),
+      units: Object.fromEntries(
+        units.map((code) => [code, code === 'REG' ? 'Menunggu' : 'Belum mulai']),
+      ),
       updatedAt: FieldValue.serverTimestamp(),
     })
 
@@ -96,39 +224,15 @@ export const createParticipant = onCall({ region: 'asia-southeast2' }, async (re
   return { participantId: participantRef.id, queueNumber, trackingToken: token }
 })
 
-const UNIT_STATUSES = [
-  'Belum mulai',
-  'Menunggu',
-  'Sedang diperiksa',
-  'Selesai',
-  'Tidak diperlukan',
-] as const
-type UnitStatus = (typeof UNIT_STATUSES)[number]
+// ---------- updateUnitStatus ----------
 
-const NEXT_STATUSES: Record<UnitStatus, UnitStatus[]> = {
-  'Belum mulai': ['Menunggu', 'Sedang diperiksa'],
-  Menunggu: ['Sedang diperiksa'],
-  'Sedang diperiksa': ['Selesai'],
-  Selesai: [],
-  'Tidak diperlukan': [],
-}
-
-function overallFrom(statuses: UnitStatus[]): 'Belum dimulai' | 'Dalam proses' | 'Selesai' {
-  const required = statuses.filter((s) => s !== 'Tidak diperlukan')
-  if (required.length > 0 && required.every((s) => s === 'Selesai')) return 'Selesai'
-  if (required.some((s) => s !== 'Belum mulai')) return 'Dalam proses'
-  return 'Belum dimulai'
-}
-
-export const updateUnitStatus = onCall({ region: 'asia-southeast2' }, async (request) => {
+export const updateUnitStatus = onCall({ region: REGION }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Anda harus login.')
   }
   const actorUid = request.auth.uid
   const role = request.auth.token.role
-  const isManager = role === 'admin' || role === 'coordinator'
-  const isStaff = role === 'staff'
-  if (!isManager && !isStaff) {
+  if (role !== 'admin' && role !== 'coordinator' && role !== 'staff') {
     throw new HttpsError('permission-denied', 'Anda tidak memiliki izin.')
   }
 
@@ -154,13 +258,6 @@ export const updateUnitStatus = onCall({ region: 'asia-southeast2' }, async (req
     const queue = queueSnap.data()!
     const unitCode = queue.unitCode as string
 
-    if (queue.status !== from) {
-      throw new HttpsError('failed-precondition', 'Status sudah berubah. Muat ulang daftar antrean.')
-    }
-    if (!NEXT_STATUSES[from].includes(to)) {
-      throw new HttpsError('failed-precondition', 'Perubahan status tidak diizinkan.')
-    }
-
     const participantRef = db.collection('participants').doc(queue.participantId)
     const participantSnap = await tx.get(participantRef)
     const siblingsSnap = await tx.get(
@@ -170,11 +267,33 @@ export const updateUnitStatus = onCall({ region: 'asia-southeast2' }, async (req
       throw new HttpsError('not-found', 'Peserta tidak ditemukan.')
     }
 
-    const token = participantSnap.data()!.trackingTokenId as string
-    const statuses = siblingsSnap.docs.map((d) =>
-      d.id === queueId ? to : (d.data().status as UnitStatus),
-    )
-    const overall = overallFrom(statuses)
+    if (queue.status !== from) {
+      throw new HttpsError('failed-precondition', 'Status sudah berubah. Muat ulang daftar antrean.')
+    }
+    if (!NEXT_STATUSES[from].includes(to)) {
+      throw new HttpsError('failed-precondition', 'Perubahan status tidak diizinkan.')
+    }
+
+    if (to === 'Sedang diperiksa') {
+      const current = currentStatusMap(siblingsSnap)
+      if (unitCode !== 'REG' && current.get('REG') !== 'Selesai') {
+        throw new HttpsError('failed-precondition', 'Registrasi belum selesai.')
+      }
+      if (unitCode === 'URI' && isUsgPending(current)) {
+        throw new HttpsError(
+          'failed-precondition',
+          'USG harus selesai lebih dulu sebelum pengambilan urine.',
+        )
+      }
+    }
+
+    const { overall, unitUpdates, unlocked } = applyChange({
+      tx,
+      siblings: siblingsSnap,
+      queueId,
+      to,
+      actorUid,
+    })
 
     const queueUpdate: Record<string, unknown> = {
       status: to,
@@ -184,16 +303,14 @@ export const updateUnitStatus = onCall({ region: 'asia-southeast2' }, async (req
     if (to === 'Sedang diperiksa') queueUpdate.startedAt = FieldValue.serverTimestamp()
     if (to === 'Selesai') queueUpdate.completedAt = FieldValue.serverTimestamp()
 
+    const token = participantSnap.data()!.trackingTokenId as string
+
     tx.update(queueRef, queueUpdate)
     tx.update(participantRef, {
       overallStatus: overall,
       updatedAt: FieldValue.serverTimestamp(),
     })
-    tx.update(db.doc(`publicTracking/${token}`), {
-      [`units.${unitCode}`]: to,
-      overallStatus: overall,
-      updatedAt: FieldValue.serverTimestamp(),
-    })
+    tx.update(db.doc(`publicTracking/${token}`), publicUpdateFor(overall, unitUpdates))
     tx.set(db.collection('auditLogs').doc(), {
       action: 'updateUnitStatus',
       actorUid,
@@ -202,6 +319,7 @@ export const updateUnitStatus = onCall({ region: 'asia-southeast2' }, async (req
       unitCode,
       from,
       to,
+      unlocked,
       at: FieldValue.serverTimestamp(),
     })
   })
@@ -209,59 +327,9 @@ export const updateUnitStatus = onCall({ region: 'asia-southeast2' }, async (req
   return { ok: true }
 })
 
-export const regenerateToken = onCall({ region: 'asia-southeast2' }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'Anda harus login.')
-  }
-  const role = request.auth.token.role
-  if (role !== 'admin' && role !== 'coordinator') {
-    throw new HttpsError('permission-denied', 'Anda tidak memiliki izin.')
-  }
+// ---------- correctUnitStatus ----------
 
-  const participantId = request.data?.participantId
-  if (typeof participantId !== 'string' || participantId.length === 0) {
-    throw new HttpsError('invalid-argument', 'Data permintaan tidak valid.')
-  }
-
-  const actorUid = request.auth.uid
-  const participantRef = db.collection('participants').doc(participantId)
-  const newToken = randomBytes(32).toString('base64url')
-
-  await db.runTransaction(async (tx) => {
-    const participantSnap = await tx.get(participantRef)
-    if (!participantSnap.exists) {
-      throw new HttpsError('not-found', 'Peserta tidak ditemukan.')
-    }
-
-    const oldToken = participantSnap.data()!.trackingTokenId as string
-    const oldRef = db.doc(`publicTracking/${oldToken}`)
-    const oldSnap = await tx.get(oldRef)
-    if (!oldSnap.exists) {
-      throw new HttpsError('not-found', 'Data tracking tidak ditemukan.')
-    }
-
-    tx.set(db.doc(`publicTracking/${newToken}`), {
-      ...oldSnap.data(),
-      active: true,
-      updatedAt: FieldValue.serverTimestamp(),
-    })
-    tx.update(oldRef, { active: false })
-    tx.update(participantRef, {
-      trackingTokenId: newToken,
-      updatedAt: FieldValue.serverTimestamp(),
-    })
-    tx.set(db.collection('auditLogs').doc(), {
-      action: 'regenerateToken',
-      actorUid,
-      participantId,
-      at: FieldValue.serverTimestamp(),
-    })
-  })
-
-  return { trackingToken: newToken }
-})
-
-export const correctUnitStatus = onCall({ region: 'asia-southeast2' }, async (request) => {
+export const correctUnitStatus = onCall({ region: REGION }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Anda harus login.')
   }
@@ -313,11 +381,13 @@ export const correctUnitStatus = onCall({ region: 'asia-southeast2' }, async (re
       throw new HttpsError('not-found', 'Peserta tidak ditemukan.')
     }
 
-    const token = participantSnap.data()!.trackingTokenId as string
-    const statuses = siblingsSnap.docs.map((d) =>
-      d.id === queueId ? to : (d.data().status as UnitStatus),
-    )
-    const overall = overallFrom(statuses)
+    const { overall, unitUpdates, unlocked } = applyChange({
+      tx,
+      siblings: siblingsSnap,
+      queueId,
+      to,
+      actorUid,
+    })
 
     const queueUpdate: Record<string, unknown> = {
       status: to,
@@ -328,6 +398,9 @@ export const correctUnitStatus = onCall({ region: 'asia-southeast2' }, async (re
       queueUpdate.startedAt = null
       queueUpdate.completedAt = null
     }
+    if (to === 'Menunggu') {
+      queueUpdate.queuedAt = FieldValue.serverTimestamp()
+    }
     if (to === 'Sedang diperiksa') {
       queueUpdate.completedAt = null
       if (!queue.startedAt) queueUpdate.startedAt = FieldValue.serverTimestamp()
@@ -337,16 +410,14 @@ export const correctUnitStatus = onCall({ region: 'asia-southeast2' }, async (re
       if (!queue.startedAt) queueUpdate.startedAt = FieldValue.serverTimestamp()
     }
 
+    const token = participantSnap.data()!.trackingTokenId as string
+
     tx.update(queueRef, queueUpdate)
     tx.update(participantRef, {
       overallStatus: overall,
       updatedAt: FieldValue.serverTimestamp(),
     })
-    tx.update(db.doc(`publicTracking/${token}`), {
-      [`units.${unitCode}`]: to,
-      overallStatus: overall,
-      updatedAt: FieldValue.serverTimestamp(),
-    })
+    tx.update(db.doc(`publicTracking/${token}`), publicUpdateFor(overall, unitUpdates))
     tx.set(db.collection('auditLogs').doc(), {
       action: 'correctUnitStatus',
       actorUid,
@@ -355,10 +426,65 @@ export const correctUnitStatus = onCall({ region: 'asia-southeast2' }, async (re
       unitCode,
       from,
       to,
+      unlocked,
       reason: cleanReason,
       at: FieldValue.serverTimestamp(),
     })
   })
 
   return { ok: true }
+})
+
+// ---------- regenerateToken ----------
+
+export const regenerateToken = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Anda harus login.')
+  }
+  const role = request.auth.token.role
+  if (role !== 'admin' && role !== 'coordinator') {
+    throw new HttpsError('permission-denied', 'Anda tidak memiliki izin.')
+  }
+
+  const participantId = request.data?.participantId
+  if (typeof participantId !== 'string' || participantId.length === 0) {
+    throw new HttpsError('invalid-argument', 'Data permintaan tidak valid.')
+  }
+
+  const actorUid = request.auth.uid
+  const participantRef = db.collection('participants').doc(participantId)
+  const newToken = randomBytes(32).toString('base64url')
+
+  await db.runTransaction(async (tx) => {
+    const participantSnap = await tx.get(participantRef)
+    if (!participantSnap.exists) {
+      throw new HttpsError('not-found', 'Peserta tidak ditemukan.')
+    }
+
+    const oldToken = participantSnap.data()!.trackingTokenId as string
+    const oldRef = db.doc(`publicTracking/${oldToken}`)
+    const oldSnap = await tx.get(oldRef)
+    if (!oldSnap.exists) {
+      throw new HttpsError('not-found', 'Data tracking tidak ditemukan.')
+    }
+
+    tx.set(db.doc(`publicTracking/${newToken}`), {
+      ...oldSnap.data(),
+      active: true,
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    tx.update(oldRef, { active: false })
+    tx.update(participantRef, {
+      trackingTokenId: newToken,
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    tx.set(db.collection('auditLogs').doc(), {
+      action: 'regenerateToken',
+      actorUid,
+      participantId,
+      at: FieldValue.serverTimestamp(),
+    })
+  })
+
+  return { trackingToken: newToken }
 })

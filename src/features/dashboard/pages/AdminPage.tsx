@@ -57,6 +57,7 @@ export default function AdminPage() {
   const selected = rows.find((row) => row.id === selectedId) ?? null
 
   function toggleUnit(code: UnitCode) {
+    if (code === 'REG') return
     setSelectedUnits((current) =>
       current.includes(code) ? current.filter((c) => c !== code) : [...current, code],
     )
@@ -105,14 +106,25 @@ export default function AdminPage() {
 
       <section className="panel">
         <h2 style={{ marginTop: 0 }}>Daftarkan peserta baru</h2>
-        <p className="muted">Pilih unit pemeriksaan yang harus dilalui peserta.</p>
+        <p className="muted">
+          Pilih pos pemeriksaan yang harus dilalui peserta. Registrasi selalu wajib.
+        </p>
 
         <div className="chips">
           {UNIT_CODES.map((code) => {
             const on = selectedUnits.includes(code)
+            const locked = code === 'REG'
             return (
-              <label key={code} className={on ? 'chip chip-on' : 'chip'}>
-                <input type="checkbox" checked={on} onChange={() => toggleUnit(code)} />
+              <label
+                key={code}
+                className={`${on ? 'chip chip-on' : 'chip'}${locked ? ' chip-locked' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={locked}
+                  onChange={() => toggleUnit(code)}
+                />
                 {UNIT_NAMES[code]}
               </label>
             )

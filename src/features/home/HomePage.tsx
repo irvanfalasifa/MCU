@@ -35,12 +35,14 @@ const BENEFITS = [
 ]
 
 const EXAMINATIONS = [
-  { icon: '📝', name: 'Registrasi', text: 'Pencatatan data peserta dan pemberian nomor antrean.' },
-  { icon: '🩺', name: 'Fisik dokter', text: 'Pemeriksaan fisik oleh dokter, seperti tekanan darah dan kondisi umum tubuh.' },
-  { icon: '🧪', name: 'Laboratorium', text: 'Pemeriksaan sampel darah untuk melihat indikator kesehatan, misalnya gula darah dan kolesterol.' },
-  { icon: '🩻', name: 'Radiologi', text: 'Pemeriksaan pencitraan, seperti rontgen, untuk melihat kondisi organ bagian dalam.' },
+  { icon: '📝', name: 'Registrasi', text: 'Pencatatan data peserta. Selalu menjadi langkah pertama.' },
+  { icon: '🩺', name: 'Cek Fisik', text: 'Pemeriksaan fisik oleh dokter, seperti tekanan darah dan kondisi umum tubuh.' },
+  { icon: '🧪', name: 'Pengambilan Darah', text: 'Pengambilan sampel darah untuk melihat indikator kesehatan, misalnya gula darah dan kolesterol.' },
+  { icon: '👁️', name: 'Visus', text: 'Pemeriksaan ketajaman penglihatan.' },
+  { icon: '💓', name: 'EKG', text: 'Perekaman aktivitas listrik jantung untuk membantu menilai irama dan kesehatan jantung.' },
+  { icon: '🩻', name: 'Rontgen', text: 'Pemeriksaan pencitraan dengan sinar-X untuk melihat kondisi organ bagian dalam.' },
   { icon: '🌊', name: 'USG', text: 'Pemeriksaan dengan gelombang suara untuk melihat kondisi organ di area perut.' },
-  { icon: '💧', name: 'Urine', text: 'Pemeriksaan sampel urine untuk membantu menilai kondisi ginjal dan saluran kemih.' },
+  { icon: '💧', name: 'Urine', text: 'Pengambilan sampel urine, dilakukan setelah pemeriksaan USG.' },
 ]
 
 const STEPS = [

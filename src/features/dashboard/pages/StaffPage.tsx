@@ -157,6 +157,9 @@ export default function StaffPage() {
 
                   <span className="row-actions">
                     <StatusBadge status={row.status} />
+                    {row.status === 'Belum mulai' && (
+                    <span className="muted">Belum terbuka</span>
+                    )}
                     {NEXT_STATUSES[row.status].map((next) => (
                       <button
                         key={next}

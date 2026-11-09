@@ -1,13 +1,15 @@
 import type { Timestamp } from 'firebase/firestore'
 
-export const UNIT_CODES = ['REG', 'FIS', 'LAB', 'RAD', 'USG', 'URI'] as const
+export const UNIT_CODES = ['REG', 'FIS', 'LAB', 'VIS', 'EKG', 'RAD', 'USG', 'URI'] as const
 export type UnitCode = (typeof UNIT_CODES)[number]
 
 export const UNIT_NAMES: Record<UnitCode, string> = {
   REG: 'Registrasi',
-  FIS: 'Fisik Dokter',
-  LAB: 'Laboratorium',
-  RAD: 'Radiologi',
+  FIS: 'Cek Fisik',
+  LAB: 'Pengambilan Darah',
+  VIS: 'Visus',
+  EKG: 'EKG',
+  RAD: 'Rontgen',
   USG: 'USG',
   URI: 'Urine',
 }
@@ -21,9 +23,10 @@ export const UNIT_STATUSES = [
 ] as const
 export type UnitStatus = (typeof UNIT_STATUSES)[number]
 
-// Perpindahan status yang diperbolehkan (alur normal, hanya maju)
+// Perpindahan status yang diperbolehkan (alur normal, hanya maju).
+// 'Belum mulai' = pos belum terbuka; dibuka otomatis oleh sistem.
 export const NEXT_STATUSES: Record<UnitStatus, UnitStatus[]> = {
-  'Belum mulai': ['Menunggu', 'Sedang diperiksa'],
+  'Belum mulai': [],
   Menunggu: ['Sedang diperiksa'],
   'Sedang diperiksa': ['Selesai'],
   Selesai: [],

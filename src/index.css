@@ -1089,3 +1089,8 @@ html {
     transition: none;
   }
 }
+
+.chip-locked {
+  cursor: default;
+  opacity: 0.85;
+}
