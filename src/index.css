@@ -1143,3 +1143,149 @@ input[type='date']:focus {
   font-weight: 600;
   opacity: 0.95;
 }
+
+/* ---------- Saran pos di halaman peserta ---------- */
+.next-step {
+  border-color: var(--primary);
+}
+
+.next-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.next-text {
+  margin: 0 0 6px;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.next-reason {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
+.check-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.tag {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.tag-free {
+  background: var(--success-soft);
+  color: #166534;
+}
+
+.tag-busy {
+  background: var(--warn-soft);
+  color: #92400e;
+}
+
+.tag-suggest {
+  background: var(--primary);
+  color: #fff;
+}
+
+.unit-list li.is-suggested {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-soft);
+}
+
+/* ---------- Papan antrean (TV) ---------- */
+.board {
+  min-height: 100vh;
+  padding: clamp(16px, 3vw, 40px);
+  background: #0b1220;
+  color: #f8fafc;
+}
+
+.board-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: clamp(16px, 3vw, 32px);
+}
+
+.board h1 {
+  margin: 0;
+  font-size: clamp(1.6rem, 3.5vw, 3rem);
+}
+
+.board-time {
+  color: #94a3b8;
+  font-size: clamp(0.9rem, 1.5vw, 1.25rem);
+}
+
+.board-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: clamp(12px, 2vw, 24px);
+}
+
+.board-card {
+  padding: clamp(16px, 2vw, 28px);
+  border: 3px solid transparent;
+  border-radius: 20px;
+  background: #111c33;
+}
+
+.board-card h2 {
+  margin: 0 0 8px;
+  font-size: clamp(1.2rem, 2.2vw, 2rem);
+}
+
+.board-card.free {
+  border-color: #16a34a;
+}
+
+.board-card.busy {
+  border-color: #f59e0b;
+}
+
+.board-state {
+  margin: 0;
+  font-size: clamp(2rem, 4.5vw, 4rem);
+  font-weight: 800;
+  line-height: 1.05;
+}
+
+.board-card.free .board-state {
+  color: #4ade80;
+}
+
+.board-card.busy .board-state {
+  color: #fbbf24;
+}
+
+.board-now {
+  margin: 10px 0 4px;
+  font-size: clamp(1.1rem, 2vw, 1.75rem);
+}
+
+.board-pending {
+  margin: 0;
+  color: #94a3b8;
+  font-size: clamp(0.95rem, 1.6vw, 1.35rem);
+}
+
+.board-footer {
+  margin-top: clamp(16px, 3vw, 32px);
+  color: #64748b;
+  font-size: 0.95rem;
+}

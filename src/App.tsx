@@ -8,6 +8,7 @@ import NotFoundPage from './app/NotFoundPage'
 import ProtectedRoute from './features/auth/components/ProtectedRoute'
 import SummaryPage from './features/dashboard/pages/SummaryPage'
 import EventsPage from './features/dashboard/pages/EventsPage'
+import DisplayPage from './features/display/DisplayPage'
 
 export default function App() {
   return (
@@ -48,6 +49,7 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/display/:eventId" element={<DisplayPage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   )

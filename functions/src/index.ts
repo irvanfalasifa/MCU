@@ -3,6 +3,7 @@ import { initializeApp } from 'firebase-admin/app'
 import {
   FieldValue,
   getFirestore,
+  type DocumentData,
   type QuerySnapshot,
   type Transaction,
 } from 'firebase-admin/firestore'
@@ -34,8 +35,6 @@ const NEXT_STATUSES: Record<UnitStatus, UnitStatus[]> = {
   Selesai: [],
   'Tidak diperlukan': [],
 }
-
-
 
 function overallFrom(statuses: UnitStatus[]): OverallStatus {
   const required = statuses.filter((s) => s !== 'Tidak diperlukan')
@@ -132,6 +131,76 @@ function publicUpdateFor(
   return update
 }
 
+// ---------- Papan antrean publik (hanya angka dan nomor antrean) ----------
+
+type BoardUnit = { pending: number; busy: number; current: string | null }
+type StatusChange = { unitCode: string; from: UnitStatus; to: UnitStatus }
+
+function emptyBoardUnits(): Record<string, BoardUnit> {
+  const units: Record<string, BoardUnit> = {}
+  UNIT_CODES.forEach((code) => {
+    units[code] = { pending: 0, busy: 0, current: null }
+  })
+  return units
+}
+
+function boardUnitsAfter(
+  existing: DocumentData | undefined,
+  changes: StatusChange[],
+  queueNumber: string,
+): Record<string, BoardUnit> {
+  const units = emptyBoardUnits()
+  const saved = existing?.units as Record<string, Partial<BoardUnit>> | undefined
+  if (saved) {
+    UNIT_CODES.forEach((code) => {
+      const u = saved[code]
+      if (u) {
+        units[code] = {
+          pending: u.pending ?? 0,
+          busy: u.busy ?? 0,
+          current: u.current ?? null,
+        }
+      }
+    })
+  }
+
+  changes.forEach(({ unitCode, from, to }) => {
+    const u = units[unitCode]
+    if (!u) return
+    if (from === 'Menunggu') u.pending -= 1
+    if (to === 'Menunggu') u.pending += 1
+    if (from === 'Sedang diperiksa') {
+      u.busy -= 1
+      if (u.current === queueNumber || u.busy <= 0) u.current = null
+    }
+    if (to === 'Sedang diperiksa') {
+      u.busy += 1
+      u.current = queueNumber
+    }
+    u.pending = Math.max(0, u.pending)
+    u.busy = Math.max(0, u.busy)
+  })
+
+  return units
+}
+
+function writeBoard(
+  tx: Transaction,
+  eventId: string,
+  existing: DocumentData | undefined,
+  changes: StatusChange[],
+  queueNumber: string,
+) {
+  tx.set(
+    db.doc(`publicBoard/${eventId}`),
+    {
+      units: boardUnitsAfter(existing, changes, queueNumber),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  )
+}
+
 // ---------- createParticipant ----------
 
 export const createParticipant = onCall({ region: REGION }, async (request) => {
@@ -178,6 +247,8 @@ export const createParticipant = onCall({ region: REGION }, async (request) => {
     }
 
     const counterSnap = await tx.get(counterRef)
+    const boardSnap = await tx.get(db.doc(`publicBoard/${eventId}`))
+
     const last = counterSnap.exists ? (counterSnap.data()?.last as number) : 0
     const next = last + 1
     const number = `${event.prefix as string}-${String(next).padStart(3, '0')}`
@@ -218,6 +289,7 @@ export const createParticipant = onCall({ region: REGION }, async (request) => {
 
     tx.set(publicRef, {
       active: true,
+      eventId,
       eventName: event.name as string,
       queueNumber: number,
       overallStatus: 'Belum dimulai',
@@ -234,6 +306,14 @@ export const createParticipant = onCall({ region: REGION }, async (request) => {
       participantId: participantRef.id,
       at: FieldValue.serverTimestamp(),
     })
+
+    writeBoard(
+      tx,
+      eventId,
+      boardSnap.data(),
+      [{ unitCode: 'REG', from: 'Belum mulai', to: 'Menunggu' }],
+      number,
+    )
 
     return number
   })
@@ -274,23 +354,22 @@ export const updateUnitStatus = onCall({ region: REGION }, async (request) => {
     }
     const queue = queueSnap.data()!
     const unitCode = queue.unitCode as string
+    const eventId = queue.eventId as string | undefined
 
     const participantRef = db.collection('participants').doc(queue.participantId)
     const participantSnap = await tx.get(participantRef)
     const siblingsSnap = await tx.get(
       db.collection('queues').where('participantId', '==', queue.participantId),
     )
-        const eventId = queue.eventId as string | undefined
-    if (eventId) {
-      const eventSnap = await tx.get(db.collection('events').doc(eventId))
-      if (eventSnap.exists && eventSnap.data()?.status === 'selesai') {
-        throw new HttpsError('failed-precondition', 'Acara ini sudah selesai.')
-      }
+    const eventSnap = eventId ? await tx.get(db.collection('events').doc(eventId)) : null
+    const boardSnap = eventId ? await tx.get(db.doc(`publicBoard/${eventId}`)) : null
+
+    if (eventSnap?.exists && eventSnap.data()?.status === 'selesai') {
+      throw new HttpsError('failed-precondition', 'Acara ini sudah selesai.')
     }
     if (!participantSnap.exists) {
       throw new HttpsError('not-found', 'Peserta tidak ditemukan.')
     }
-
     if (queue.status !== from) {
       throw new HttpsError('failed-precondition', 'Status sudah berubah. Muat ulang daftar antrean.')
     }
@@ -318,6 +397,16 @@ export const updateUnitStatus = onCall({ region: REGION }, async (request) => {
       to,
       actorUid,
     })
+
+    if (eventId) {
+      const changes: StatusChange[] = [
+        { unitCode, from, to },
+        ...unlocked.map(
+          (code): StatusChange => ({ unitCode: code, from: 'Belum mulai', to: 'Menunggu' }),
+        ),
+      ]
+      writeBoard(tx, eventId, boardSnap?.data(), changes, queue.queueNumber as string)
+    }
 
     const queueUpdate: Record<string, unknown> = {
       status: to,
@@ -391,6 +480,7 @@ export const correctUnitStatus = onCall({ region: REGION }, async (request) => {
     }
     const queue = queueSnap.data()!
     const unitCode = queue.unitCode as string
+    const eventId = queue.eventId as string | undefined
 
     if (queue.status !== from) {
       throw new HttpsError('failed-precondition', 'Status sudah berubah. Muat ulang daftar antrean.')
@@ -401,6 +491,8 @@ export const correctUnitStatus = onCall({ region: REGION }, async (request) => {
     const siblingsSnap = await tx.get(
       db.collection('queues').where('participantId', '==', queue.participantId),
     )
+    const boardSnap = eventId ? await tx.get(db.doc(`publicBoard/${eventId}`)) : null
+
     if (!participantSnap.exists) {
       throw new HttpsError('not-found', 'Peserta tidak ditemukan.')
     }
@@ -412,6 +504,16 @@ export const correctUnitStatus = onCall({ region: REGION }, async (request) => {
       to,
       actorUid,
     })
+
+    if (eventId) {
+      const changes: StatusChange[] = [
+        { unitCode, from, to },
+        ...unlocked.map(
+          (code): StatusChange => ({ unitCode: code, from: 'Belum mulai', to: 'Menunggu' }),
+        ),
+      ]
+      writeBoard(tx, eventId, boardSnap?.data(), changes, queue.queueNumber as string)
+    }
 
     const queueUpdate: Record<string, unknown> = {
       status: to,
@@ -533,9 +635,10 @@ export const createEvent = onCall({ region: REGION }, async (request) => {
   }
   const actorUid = request.auth.uid
 
-  const { name, type, date, prefix } = request.data ?? {}
+  const { name, type, date, prefix, fasting } = request.data ?? {}
   const cleanName = typeof name === 'string' ? name.trim() : ''
   const cleanPrefix = typeof prefix === 'string' ? prefix.trim().toUpperCase() : ''
+  const cleanFasting = typeof fasting === 'boolean' ? fasting : true
 
   if (
     cleanName.length < 3 ||
@@ -557,9 +660,16 @@ export const createEvent = onCall({ region: REGION }, async (request) => {
     type,
     date,
     prefix: cleanPrefix,
+    fasting: cleanFasting,
     status: 'aktif',
     createdBy: actorUid,
     createdAt: FieldValue.serverTimestamp(),
+  })
+  batch.set(db.doc(`publicBoard/${eventRef.id}`), {
+    eventName: cleanName,
+    fasting: cleanFasting,
+    units: emptyBoardUnits(),
+    updatedAt: FieldValue.serverTimestamp(),
   })
   batch.set(db.collection('auditLogs').doc(), {
     action: 'createEvent',

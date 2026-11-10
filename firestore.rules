@@ -35,6 +35,11 @@ service cloud.firestore {
       allow read: if isManager() || isStaff();
       allow write: if false;
     }
+    // Papan antrean: hanya satu dokumen (butuh ID acara); isinya angka dan nomor antrean
+    match /publicBoard/{eventId} {
+      allow get: if true;
+      allow list, write: if false;
+    }
       
       match /{document=**} {
       allow read, write: if false;

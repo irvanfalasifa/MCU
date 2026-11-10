@@ -72,6 +72,7 @@ export interface PublicTracking {
   overallStatus: OverallStatus
   units: Partial<Record<UnitCode, UnitStatus>>
   updatedAt: Timestamp
+  eventId?: string
 }
 
 // users/{uid}
@@ -108,4 +109,18 @@ export interface McuEvent {
   date: string
   prefix: string
   status: EventStatus
+  fasting: boolean
+}
+
+export interface BoardUnit {
+  pending: number
+  busy: number
+  current: string | null
+}
+
+export interface PublicBoard {
+  eventName?: string
+  fasting?: boolean
+  units: Partial<Record<UnitCode, BoardUnit>>
+  updatedAt?: Timestamp
 }

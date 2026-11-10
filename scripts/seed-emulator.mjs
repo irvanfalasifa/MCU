@@ -19,6 +19,33 @@ await env.withSecurityRulesDisabled(async (ctx) => {
     prefix: 'MCU',
     status: 'aktif',
     createdAt: Timestamp.now(),
+    fasting: true,
+  })
+    const zeroUnit = { pending: 0, busy: 0, current: null }
+  await setDoc(doc(db, 'publicBoard', 'acara-contoh'), {
+    eventName: 'MCU Contoh',
+    fasting: true,
+    updatedAt: Timestamp.now(),
+    units: {
+      REG: zeroUnit, FIS: zeroUnit, LAB: zeroUnit, VIS: zeroUnit,
+      EKG: zeroUnit, RAD: zeroUnit, USG: zeroUnit, URI: zeroUnit,
+    },
+  })
+
+  await setDoc(doc(db, 'publicBoard', 'papan-contoh'), {
+    eventName: 'Papan Demo',
+    fasting: true,
+    updatedAt: Timestamp.now(),
+    units: {
+      REG: { pending: 0, busy: 0, current: null },
+      FIS: { pending: 5, busy: 1, current: 'DEM-004' },
+      LAB: { pending: 9, busy: 0, current: null },
+      VIS: { pending: 6, busy: 1, current: 'DEM-007' },
+      EKG: { pending: 7, busy: 0, current: null },
+      RAD: { pending: 4, busy: 0, current: null },
+      USG: { pending: 8, busy: 1, current: 'DEM-002' },
+      URI: { pending: 0, busy: 0, current: null },
+    },
   })
 
   await setDoc(doc(db, 'publicTracking', 'token-contoh-123'), {
@@ -27,7 +54,7 @@ await env.withSecurityRulesDisabled(async (ctx) => {
     overallStatus: 'Dalam proses',
     units: {
       REG: 'Selesai',
-      FIS: 'Sedang diperiksa',
+      FIS: 'Selesai',
       LAB: 'Menunggu',
       VIS: 'Menunggu',
       EKG: 'Menunggu',

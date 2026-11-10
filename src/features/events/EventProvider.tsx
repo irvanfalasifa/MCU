@@ -42,6 +42,7 @@ export default function EventProvider({ children }: { children: ReactNode }) {
               date: data.date as string,
               prefix: data.prefix as string,
               status: data.status as EventStatus,
+                fasting: data.fasting === true,
             }
           }),
         )

@@ -39,6 +39,7 @@ beforeEach(async () => {
     await setDoc(doc(db, 'queues', 'q1'), { unitCode: 'LAB' })
     await setDoc(doc(db, 'queues', 'q2'), { unitCode: 'RAD' })
     await setDoc(doc(db, 'events', 'e1'), { name: 'Acara Uji', status: 'aktif' })
+    await setDoc(doc(db, 'publicBoard', 'e1'), { eventName: 'Acara Uji', units: {} })
     await setDoc(doc(db, 'users', 'uid-staff'), { role: 'staff' })
   })
 })
@@ -158,5 +159,17 @@ describe('acara', () => {
 
   it('admin tidak boleh menulis acara dari browser', async () => {
     await assertFails(setDoc(doc(as('u1', { role: 'admin' }), 'events', 'e1'), { status: 'selesai' }))
+  })
+})
+describe('papan antrean', () => {
+  it('pengunjung boleh membaca satu papan, tetapi tidak boleh daftar atau menulis', async () => {
+    await assertSucceeds(getDoc(doc(unauth(), 'publicBoard', 'e1')))
+    await assertFails(getDocs(collection(unauth(), 'publicBoard')))
+    await assertFails(setDoc(doc(unauth(), 'publicBoard', 'e1'), { units: {} }))
+  })
+
+  it('petugas tidak boleh menulis papan dari browser', async () => {
+    const db = env.authenticatedContext('u1', { role: 'staff' }).firestore()
+    await assertFails(setDoc(doc(db, 'publicBoard', 'e1'), { units: {} }))
   })
 })

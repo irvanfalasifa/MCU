@@ -15,6 +15,8 @@ import {
 } from '../../../types/mcu'
 import { useEvents } from '../../events/EventContext'
 
+const baseUrl = import.meta.env.VITE_PUBLIC_BASE_URL || window.location.origin
+
 function formatDate(value: string): string {
   return new Date(`${value}T00:00:00`).toLocaleDateString('id-ID', {
     day: 'numeric',
@@ -31,6 +33,7 @@ export default function EventsPage() {
   const [type, setType] = useState<EventType>('perusahaan')
   const [date, setDate] = useState(todayJakarta())
   const [prefixInput, setPrefixInput] = useState<string | null>(null)
+  const [fasting, setFasting] = useState(true)
   const [saving, setSaving] = useState(false)
   const [confirmEvent, setConfirmEvent] = useState<McuEvent | null>(null)
 
@@ -50,10 +53,10 @@ export default function EventsPage() {
     setSaving(true)
     try {
       const call = httpsCallable<
-        { name: string; type: EventType; date: string; prefix: string },
+        { name: string; type: EventType; date: string; prefix: string; fasting: boolean },
         { eventId: string }
       >(functions, 'createEvent')
-      const response = await call({ name, type, date, prefix })
+      const response = await call({ name, type, date, prefix, fasting })
       setSelectedEventId(response.data.eventId)
       toast.success(`Acara "${name.trim()}" berhasil dibuat.`)
       setName('')
@@ -79,6 +82,15 @@ export default function EventsPage() {
       )
     } catch (err) {
       toast.error(errorMessage(err, 'Gagal mengubah status acara.'))
+    }
+  }
+
+  async function copyBoardLink(event: McuEvent) {
+    try {
+      await navigator.clipboard.writeText(`${baseUrl}/display/${event.id}`)
+      toast.success('Tautan papan antrean disalin.')
+    } catch {
+      toast.error('Tautan tidak dapat disalin. Gunakan tombol Papan antrean lalu salin dari browser.')
     }
   }
 
@@ -127,6 +139,16 @@ export default function EventsPage() {
               />
             </label>
           </div>
+
+          <label className="check-inline">
+            <input
+              type="checkbox"
+              checked={fasting}
+              onChange={(e) => setFasting(e.target.checked)}
+            />
+            Peserta berpuasa (disarankan ambil darah lebih dulu)
+          </label>
+
           <div>
             <button className="btn btn-primary" type="submit" disabled={saving}>
               {saving ? 'Memproses...' : 'Buat acara'}
@@ -145,7 +167,8 @@ export default function EventsPage() {
               <span className="event-info">
                 <strong>{ev.name}</strong>
                 <small>
-                  {EVENT_TYPE_LABEL[ev.type]} · {formatDate(ev.date)} · awalan {ev.prefix}
+                  {EVENT_TYPE_LABEL[ev.type]} · {formatDate(ev.date)} · awalan {ev.prefix} ·{' '}
+                  {ev.fasting ? 'puasa' : 'tanpa puasa'}
                 </small>
               </span>
               <span className="row-actions">
@@ -159,6 +182,17 @@ export default function EventsPage() {
                     Pilih
                   </button>
                 )}
+                <a
+                  className="btn btn-sm"
+                  href={`/display/${ev.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Papan antrean
+                </a>
+                <button className="btn btn-sm btn-ghost" onClick={() => copyBoardLink(ev)}>
+                  Salin tautan
+                </button>
                 {ev.status === 'aktif' ? (
                   <button className="btn btn-sm btn-ghost" onClick={() => setConfirmEvent(ev)}>
                     Tandai selesai
