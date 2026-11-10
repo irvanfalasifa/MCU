@@ -7,7 +7,7 @@ import {
   type QuerySnapshot,
   type Transaction,
 } from 'firebase-admin/firestore'
-import { HttpsError, onCall } from 'firebase-functions/v2/https'
+import { HttpsError, onCall, type CallableRequest } from 'firebase-functions/v2/https'
 
 initializeApp()
 const db = getFirestore()
@@ -201,9 +201,15 @@ function writeBoard(
   )
 }
 
-// ---------- createParticipant ----------
+// ---------- Pembuatan peserta (satu atau banyak) ----------
 
-export const createParticipant = onCall({ region: REGION }, async (request) => {
+type NewParticipant = { participantId: string; queueNumber: string; trackingToken: string }
+
+// Batas per permintaan: setiap peserta menulis hingga 10 dokumen, dan satu
+// transaksi Firestore dibatasi 500 penulisan.
+const MAX_BATCH = 40
+
+function requireManager(request: CallableRequest): string {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Anda harus login.')
   }
@@ -211,13 +217,17 @@ export const createParticipant = onCall({ region: REGION }, async (request) => {
   if (role !== 'admin' && role !== 'coordinator') {
     throw new HttpsError('permission-denied', 'Anda tidak memiliki izin.')
   }
+  return request.auth.uid
+}
 
-  const { eventId, requiredUnits } = request.data ?? {}
-  if (typeof eventId !== 'string' || eventId.length === 0) {
+function parseEventId(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0) {
     throw new HttpsError('invalid-argument', 'Acara belum dipilih.')
   }
+  return value
+}
 
-  const raw: unknown = requiredUnits
+function parseRequiredUnits(raw: unknown): (typeof UNIT_CODES)[number][] {
   if (
     !Array.isArray(raw) ||
     raw.length === 0 ||
@@ -226,17 +236,22 @@ export const createParticipant = onCall({ region: REGION }, async (request) => {
     throw new HttpsError('invalid-argument', 'Daftar unit pemeriksaan tidak valid.')
   }
   // Registrasi selalu wajib.
-  const units = UNIT_CODES.filter((code) => code === 'REG' || raw.includes(code))
+  return UNIT_CODES.filter((code) => code === 'REG' || raw.includes(code))
+}
 
-  const actorUid = request.auth.uid
-  const token = randomBytes(32).toString('base64url')
+async function createParticipants(params: {
+  eventId: string
+  units: string[]
+  count: number
+  actorUid: string
+}): Promise<NewParticipant[]> {
+  const { eventId, units, count, actorUid } = params
 
   const eventRef = db.collection('events').doc(eventId)
   const counterRef = db.doc(`counters/${eventId}`)
-  const participantRef = db.collection('participants').doc()
-  const publicRef = db.doc(`publicTracking/${token}`)
+  const boardRef = db.doc(`publicBoard/${eventId}`)
 
-  const queueNumber = await db.runTransaction(async (tx) => {
+  return db.runTransaction(async (tx) => {
     const eventSnap = await tx.get(eventRef)
     if (!eventSnap.exists) {
       throw new HttpsError('not-found', 'Acara tidak ditemukan.')
@@ -247,78 +262,113 @@ export const createParticipant = onCall({ region: REGION }, async (request) => {
     }
 
     const counterSnap = await tx.get(counterRef)
-    const boardSnap = await tx.get(db.doc(`publicBoard/${eventId}`))
+    const boardSnap = await tx.get(boardRef)
 
-    const last = counterSnap.exists ? (counterSnap.data()?.last as number) : 0
-    const next = last + 1
-    const number = `${event.prefix as string}-${String(next).padStart(3, '0')}`
+    const prefix = event.prefix as string
     const mcuDate = event.date as string
+    const last = counterSnap.exists ? (counterSnap.data()?.last as number) : 0
 
-    tx.set(counterRef, { last: next })
+    const created: NewParticipant[] = []
 
-    tx.set(participantRef, {
-      participantId: participantRef.id,
-      eventId,
-      queueNumber: number,
-      mcuDate,
-      requiredUnits: units,
-      overallStatus: 'Belum dimulai',
-      trackingTokenId: token,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-      isActive: true,
-    })
+    for (let i = 1; i <= count; i += 1) {
+      const number = `${prefix}-${String(last + i).padStart(3, '0')}`
+      const token = randomBytes(32).toString('base64url')
+      const participantRef = db.collection('participants').doc()
 
-    for (const unitCode of units) {
-      const isReg = unitCode === 'REG'
-      tx.set(db.collection('queues').doc(), {
+      tx.set(participantRef, {
         participantId: participantRef.id,
         eventId,
-        unitCode,
-        mcuDate,
         queueNumber: number,
-        status: isReg ? 'Menunggu' : 'Belum mulai',
-        queuedAt: isReg ? FieldValue.serverTimestamp() : null,
-        startedAt: null,
-        completedAt: null,
-        lastUpdatedBy: actorUid,
+        mcuDate,
+        requiredUnits: units,
+        overallStatus: 'Belum dimulai',
+        trackingTokenId: token,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
+        isActive: true,
+      })
+
+      for (const unitCode of units) {
+        const isReg = unitCode === 'REG'
+        tx.set(db.collection('queues').doc(), {
+          participantId: participantRef.id,
+          eventId,
+          unitCode,
+          mcuDate,
+          queueNumber: number,
+          status: isReg ? 'Menunggu' : 'Belum mulai',
+          queuedAt: isReg ? FieldValue.serverTimestamp() : null,
+          startedAt: null,
+          completedAt: null,
+          lastUpdatedBy: actorUid,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      }
+
+      tx.set(db.doc(`publicTracking/${token}`), {
+        active: true,
+        eventId,
+        eventName: event.name as string,
+        queueNumber: number,
+        overallStatus: 'Belum dimulai',
+        units: Object.fromEntries(
+          units.map((code) => [code, code === 'REG' ? 'Menunggu' : 'Belum mulai']),
+        ),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+
+      created.push({
+        participantId: participantRef.id,
+        queueNumber: number,
+        trackingToken: token,
       })
     }
 
-    tx.set(publicRef, {
-      active: true,
-      eventId,
-      eventName: event.name as string,
-      queueNumber: number,
-      overallStatus: 'Belum dimulai',
-      units: Object.fromEntries(
-        units.map((code) => [code, code === 'REG' ? 'Menunggu' : 'Belum mulai']),
-      ),
-      updatedAt: FieldValue.serverTimestamp(),
-    })
+    tx.set(counterRef, { last: last + count })
 
     tx.set(db.collection('auditLogs').doc(), {
-      action: 'createParticipant',
+      action: count === 1 ? 'createParticipant' : 'createParticipantsBatch',
       actorUid,
       eventId,
-      participantId: participantRef.id,
+      count,
       at: FieldValue.serverTimestamp(),
     })
 
-    writeBoard(
-      tx,
-      eventId,
-      boardSnap.data(),
-      [{ unitCode: 'REG', from: 'Belum mulai', to: 'Menunggu' }],
-      number,
+    const changes: StatusChange[] = Array.from(
+      { length: count },
+      (): StatusChange => ({ unitCode: 'REG', from: 'Belum mulai', to: 'Menunggu' }),
     )
+    writeBoard(tx, eventId, boardSnap.data(), changes, created[created.length - 1].queueNumber)
 
-    return number
+    return created
   })
+}
 
-  return { participantId: participantRef.id, queueNumber, trackingToken: token }
+export const createParticipant = onCall({ region: REGION }, async (request) => {
+  const actorUid = requireManager(request)
+  const eventId = parseEventId(request.data?.eventId)
+  const units = parseRequiredUnits(request.data?.requiredUnits)
+
+  const [created] = await createParticipants({ eventId, units, count: 1, actorUid })
+  return created
+})
+
+export const createParticipantsBatch = onCall({ region: REGION }, async (request) => {
+  const actorUid = requireManager(request)
+  const eventId = parseEventId(request.data?.eventId)
+  const units = parseRequiredUnits(request.data?.requiredUnits)
+
+  const count = request.data?.count
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 1 || count > MAX_BATCH) {
+    throw new HttpsError(
+      'invalid-argument',
+      `Jumlah peserta harus 1 sampai ${MAX_BATCH} per permintaan.`,
+    )
+  }
+
+  const participants = await createParticipants({ eventId, units, count, actorUid })
+  return { participants }
 })
 
 // ---------- updateUnitStatus ----------
@@ -443,17 +493,7 @@ export const updateUnitStatus = onCall({ region: REGION }, async (request) => {
 // ---------- correctUnitStatus ----------
 
 export const correctUnitStatus = onCall({ region: REGION }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'Anda harus login.')
-  }
-  const role = request.auth.token.role
-  if (role !== 'admin' && role !== 'coordinator') {
-    throw new HttpsError(
-      'permission-denied',
-      'Hanya admin atau koordinator yang dapat mengoreksi status.',
-    )
-  }
-  const actorUid = request.auth.uid
+  const actorUid = requireManager(request)
 
   const { queueId, expectedStatus, newStatus, reason } = request.data ?? {}
   const cleanReason = typeof reason === 'string' ? reason.trim() : ''
@@ -564,20 +604,13 @@ export const correctUnitStatus = onCall({ region: REGION }, async (request) => {
 // ---------- regenerateToken ----------
 
 export const regenerateToken = onCall({ region: REGION }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'Anda harus login.')
-  }
-  const role = request.auth.token.role
-  if (role !== 'admin' && role !== 'coordinator') {
-    throw new HttpsError('permission-denied', 'Anda tidak memiliki izin.')
-  }
+  const actorUid = requireManager(request)
 
   const participantId = request.data?.participantId
   if (typeof participantId !== 'string' || participantId.length === 0) {
     throw new HttpsError('invalid-argument', 'Data permintaan tidak valid.')
   }
 
-  const actorUid = request.auth.uid
   const participantRef = db.collection('participants').doc(participantId)
   const newToken = randomBytes(32).toString('base64url')
 
@@ -626,14 +659,7 @@ function isValidDate(value: unknown): value is string {
 }
 
 export const createEvent = onCall({ region: REGION }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'Anda harus login.')
-  }
-  const role = request.auth.token.role
-  if (role !== 'admin' && role !== 'coordinator') {
-    throw new HttpsError('permission-denied', 'Anda tidak memiliki izin.')
-  }
-  const actorUid = request.auth.uid
+  const actorUid = requireManager(request)
 
   const { name, type, date, prefix, fasting } = request.data ?? {}
   const cleanName = typeof name === 'string' ? name.trim() : ''
@@ -683,14 +709,7 @@ export const createEvent = onCall({ region: REGION }, async (request) => {
 })
 
 export const setEventStatus = onCall({ region: REGION }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'Anda harus login.')
-  }
-  const role = request.auth.token.role
-  if (role !== 'admin' && role !== 'coordinator') {
-    throw new HttpsError('permission-denied', 'Anda tidak memiliki izin.')
-  }
-  const actorUid = request.auth.uid
+  const actorUid = requireManager(request)
 
   const { eventId, status } = request.data ?? {}
   if (

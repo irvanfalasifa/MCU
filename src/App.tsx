@@ -9,6 +9,7 @@ import ProtectedRoute from './features/auth/components/ProtectedRoute'
 import SummaryPage from './features/dashboard/pages/SummaryPage'
 import EventsPage from './features/dashboard/pages/EventsPage'
 import DisplayPage from './features/display/DisplayPage'
+import LabelsPage from './features/dashboard/pages/LabelsPage'
 
 export default function App() {
   return (
@@ -38,6 +39,14 @@ export default function App() {
         element={
           <ProtectedRoute allowedRoles={['admin', 'coordinator']}>
             <EventsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/labels"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'coordinator']}>
+            <LabelsPage />
           </ProtectedRoute>
         }
       />

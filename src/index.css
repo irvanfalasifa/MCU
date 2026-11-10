@@ -1289,3 +1289,96 @@ input[type='date']:focus {
   color: #64748b;
   font-size: 0.95rem;
 }
+
+input[type='number'] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font: inherit;
+  background: #fff;
+  color: var(--text);
+}
+
+input[type='number']:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+
+/* ---------- Lembar label ---------- */
+.label-sheet {
+  display: grid;
+  gap: 8px;
+}
+
+.label-sheet.size-standard {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.label-sheet.size-large {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.label-card {
+  padding: 10px;
+  border: 1px dashed #94a3b8;
+  border-radius: 8px;
+  background: #fff;
+  text-align: center;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.label-event {
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.label-number {
+  font-size: 1.6rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.size-large .label-number {
+  font-size: 2.6rem;
+}
+
+.label-card svg {
+  margin: 6px 0;
+}
+
+.label-hint {
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.label-name {
+  margin-top: 8px;
+  height: 1.6rem;
+  border-bottom: 1px solid #0f172a;
+  text-align: left;
+  font-size: 0.75rem;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  main {
+    max-width: none;
+    padding: 0;
+  }
+
+  .label-sheet.print-area {
+    position: static;
+    width: 100%;
+  }
+}

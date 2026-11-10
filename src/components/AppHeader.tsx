@@ -19,7 +19,7 @@ export default function AppHeader() {
   const isManager = role === 'admin' || role === 'coordinator'
 
   return (
-    <header className="app-header">
+    <header className="app-header no-print">
       <div className="app-header-inner">
         <Link to="/home" className="brand">
           🩺 MCU Tracker
@@ -32,6 +32,11 @@ export default function AppHeader() {
           {isManager && (
             <NavLink to="/admin" end className={linkClass}>
               Peserta
+            </NavLink>
+          )}
+          {isManager && (
+            <NavLink to="/admin/labels" className={linkClass}>
+              Label
             </NavLink>
           )}
           {isManager && (
